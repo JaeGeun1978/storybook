@@ -50,6 +50,7 @@ export const generateStoryContent = async (topic: string, language: StoryLanguag
       Even if the topic is in Korean, you MUST write the story entirely in English.
       Compose 3 to 5 scenes.
       Each scene MUST have exactly 2 sentences. No more, no less.
+      Use expressions commonly used in real everyday life!
       
       ${toneInstruction}
       

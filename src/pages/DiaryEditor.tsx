@@ -171,8 +171,8 @@ export const DiaryEditorPage: React.FC = () => {
     setStatusText('🎬 영상 준비 중...');
 
     try {
-      // 2문장씩 묶어서 DiarySceneData 생성
-      const sceneCount = Math.ceil(diary.sentences.length / SENTENCES_PER_PAGE);
+      // 1문장씩 DiarySceneData 생성
+      const sceneCount = diary.sentences.length;
       const scenes: {
         englishLines: string[];
         koreanLines: string[];
@@ -181,31 +181,28 @@ export const DiaryEditorPage: React.FC = () => {
       }[] = [];
 
       for (let i = 0; i < sceneCount; i++) {
-        const pageSentences = diary.sentences.slice(
-          i * SENTENCES_PER_PAGE,
-          (i + 1) * SENTENCES_PER_PAGE
-        );
+        const sentence = diary.sentences[i];
 
-        // TTS 생성 (캐시 확인)
+        // TTS 생성 (1문장씩, 영상용 별도 캐시 키 사용)
         setStatusText(`🎧 음성 생성 중... (${i + 1}/${sceneCount})`);
         setProgress(Math.round((i / sceneCount) * 40));
 
-        let audioBlob = audioBlobsRef.current.get(i);
+        const videoCacheKey = 10000 + i; // 영상용 별도 캐시 키
+        let audioBlob = audioBlobsRef.current.get(videoCacheKey);
         if (!audioBlob) {
-          const textToRead = pageSentences.map(s => s.english).join(' ');
-          audioBlob = await generateSpeech(textToRead, 'en');
-          audioBlobsRef.current.set(i, audioBlob);
+          audioBlob = await generateSpeech(sentence.english, 'en');
+          audioBlobsRef.current.set(videoCacheKey, audioBlob);
         }
 
-        // 해당 문장에 관련된 단어 찾기 (문장에 포함된 단어만)
-        const sentenceText = pageSentences.map(s => s.english.toLowerCase()).join(' ');
+        // 해당 문장에 포함된 단어만 찾기
+        const sentenceText = sentence.english.toLowerCase();
         const relatedVocab = diary.vocabulary
           .filter(v => sentenceText.includes(v.word.toLowerCase()))
           .map(v => ({ word: v.word, meaning: v.meaning }));
 
         scenes.push({
-          englishLines: pageSentences.map(s => s.english),
-          koreanLines: pageSentences.map(s => s.korean),
+          englishLines: [sentence.english],
+          koreanLines: [sentence.korean],
           audioFile: audioBlob,
           vocabulary: relatedVocab,
         });

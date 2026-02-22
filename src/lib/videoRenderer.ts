@@ -250,15 +250,34 @@ export const renderAllScenes = async ({
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
         drawImageCover(ctx, scene.image, WIDTH, HEIGHT);
 
-        // ── 자막 그리기 (2문장 동시 표시, 장면 전체) ──
+        // ── 자막 그리기 (한 문장씩, 글자수 비례 타이밍 싱크) ──
         const chunks = scene.subtitleChunks;
         if (chunks.length > 0) {
-          // 단일 청크 — 장면 시작 시 부드러운 페이드인만 적용
-          const chunk = chunks[0];
-          const fadeInDur = 0.4; // 초
+          const timeRatio = sceneElapsed / timeline.duration; // 0~1
+
+          // 현재 시간에 해당하는 문장 찾기
+          let chunkIndex = chunks.length - 1;
+          for (let ci = 0; ci < chunks.length; ci++) {
+            if (timeRatio < chunks[ci].endRatio) {
+              chunkIndex = ci;
+              break;
+            }
+          }
+
+          const chunk = chunks[chunkIndex];
+          const chunkStartTime = chunk.startRatio * timeline.duration;
+          const chunkEndTime = chunk.endRatio * timeline.duration;
+          const chunkDuration = chunkEndTime - chunkStartTime;
+          const chunkElapsed = sceneElapsed - chunkStartTime;
+
+          // 부드러운 페이드인(0.3초) + 페이드아웃(0.2초)
+          const fadeIn = Math.min(0.3, chunkDuration * 0.12);
+          const fadeOut = Math.min(0.2, chunkDuration * 0.08);
           let alpha = 1;
-          if (sceneElapsed < fadeInDur) {
-            alpha = sceneElapsed / fadeInDur;
+          if (chunkElapsed < fadeIn) {
+            alpha = chunkElapsed / fadeIn;
+          } else if (chunkDuration - chunkElapsed < fadeOut) {
+            alpha = Math.max(0, (chunkDuration - chunkElapsed) / fadeOut);
           }
 
           drawSubtitle(ctx, chunk.lines, alpha);
@@ -303,10 +322,10 @@ export const renderAllScenes = async ({
 // ═══════════════════════════════════════════════════════════
 
 export const renderVideo = async ({
-  imageFile,
-  audioFile,
-  subtitleText,
-  onProgress
+    imageFile,
+    audioFile,
+    subtitleText,
+    onProgress
 }: RenderSingleOptions): Promise<string> => {
   return renderAllScenes({
     scenes: [{ imageFile, audioFile, subtitleText }],
@@ -319,32 +338,40 @@ export const renderVideo = async ({
 // ═══════════════════════════════════════════════════════════
 
 /**
- * 텍스트를 단일 자막 덩어리로 만들어 장면 전체에 표시.
- * 긴 줄은 자동 줄바꿈(40자 기준)하여 화면에 맞춤.
- * 
- * → 한 장면에 2문장이 동시에 보이도록 처리.
+ * 텍스트를 문장 단위로 분리하여 한 문장씩 표시.
+ * 각 문장의 글자 수에 비례하여 시간을 배분 → TTS 음성과 자막 싱크 최적화.
+ * 긴 문장은 40자 기준으로 자동 줄바꿈.
  */
 function splitSubtitleIntoChunks(
   text: string
 ): { lines: string[]; charLen: number; startRatio: number; endRatio: number }[] {
-  const MAX_CHARS_PER_LINE = 40; // 폰트가 작아졌으므로 한 줄에 더 많은 글자
+  const MAX_CHARS_PER_LINE = 40;
 
-  const allLines: string[] = [];
-  let remaining = text.trim();
+  // 1) 문장 단위로 분리 (.!?。 뒤에 공백 또는 끝)
+  const sentences = text.trim().match(/[^.!?。]*[.!?。]+[\s]*/g) || [text.trim()];
+  // 빈 문장 제거 & trim
+  const cleanSentences = sentences.map(s => s.trim()).filter(s => s.length > 0);
 
-  while (remaining.length > 0) {
-    if (remaining.length <= MAX_CHARS_PER_LINE) {
-      allLines.push(remaining);
-      break;
-    }
+  if (cleanSentences.length === 0) {
+    cleanSentences.push(text.trim());
+  }
 
-    let breakPoint = MAX_CHARS_PER_LINE;
+  // 2) 각 문장을 줄바꿈 처리하여 청크 생성
+  const rawChunks: { lines: string[]; charLen: number }[] = [];
 
-    // 문장 끝(.!?。) 탐색
-    const sentenceEnd = remaining.substring(0, MAX_CHARS_PER_LINE + 5).search(/[.!?。]\s/);
-    if (sentenceEnd > 0 && sentenceEnd <= MAX_CHARS_PER_LINE + 2) {
-      breakPoint = sentenceEnd + 1;
-    } else {
+  for (const sentence of cleanSentences) {
+    const lines: string[] = [];
+    let remaining = sentence;
+
+    while (remaining.length > 0) {
+      if (remaining.length <= MAX_CHARS_PER_LINE) {
+        lines.push(remaining);
+        break;
+      }
+
+      let breakPoint = MAX_CHARS_PER_LINE;
+
+      // 쉼표/공백/한글 조사에서 끊기
       const commaIdx = remaining.lastIndexOf(',', MAX_CHARS_PER_LINE);
       const spaceIdx = remaining.lastIndexOf(' ', MAX_CHARS_PER_LINE);
       const koBreak = remaining.substring(0, MAX_CHARS_PER_LINE).search(/[을를이가은는에서도의와과로] /);
@@ -356,24 +383,41 @@ function splitSubtitleIntoChunks(
       } else if (spaceIdx > MAX_CHARS_PER_LINE * 0.35) {
         breakPoint = spaceIdx + 1;
       }
+
+      lines.push(remaining.substring(0, breakPoint).trim());
+      remaining = remaining.substring(breakPoint).trim();
     }
 
-    allLines.push(remaining.substring(0, breakPoint).trim());
-    remaining = remaining.substring(breakPoint).trim();
+    if (lines.length === 0) lines.push(sentence.substring(0, MAX_CHARS_PER_LINE));
+
+    rawChunks.push({
+      lines,
+      charLen: sentence.length,
+    });
   }
 
-  if (allLines.length === 0) {
-    allLines.push(text.substring(0, MAX_CHARS_PER_LINE));
+  // 3) 글자 수 비례로 시간 비율 배분 → TTS 싱크
+  const totalChars = rawChunks.reduce((sum, c) => sum + c.charLen, 0) || 1;
+  const result: { lines: string[]; charLen: number; startRatio: number; endRatio: number }[] = [];
+  let cumulative = 0;
+
+  for (const chunk of rawChunks) {
+    const ratio = chunk.charLen / totalChars;
+    result.push({
+      lines: chunk.lines,
+      charLen: chunk.charLen,
+      startRatio: cumulative,
+      endRatio: cumulative + ratio,
+    });
+    cumulative += ratio;
   }
 
-  // 단일 청크로 반환 — 장면 시작~끝까지 자막이 계속 보임
-  const totalChars = allLines.reduce((sum, line) => sum + line.length, 0) || 1;
-  return [{
-    lines: allLines,
-    charLen: totalChars,
-    startRatio: 0,
-    endRatio: 1,
-  }];
+  // 마지막 endRatio를 정확히 1로 보정
+  if (result.length > 0) {
+    result[result.length - 1].endRatio = 1;
+  }
+
+  return result;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -400,7 +444,7 @@ function drawImageCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, w:
   ctx.drawImage(img, drawX, drawY, drawW, drawH);
 }
 
-/** 자막 그리기 (2문장 동시 표시, 하단 중앙) */
+/** 자막 그리기 (한 문장씩 표시, 하단 중앙) */
 function drawSubtitle(ctx: CanvasRenderingContext2D, lines: string[], alpha: number) {
   if (!lines || lines.length === 0 || alpha <= 0) return;
 
@@ -451,7 +495,7 @@ function drawVocabulary(ctx: CanvasRenderingContext2D, vocabulary: VocabItem[]) 
   const lineHeight = 30;
   const padding = 10;
 
-  // 배경 영역 크기 계산
+  // 배경 영역 크기 계산 (20% 여유)
   ctx.font = 'bold 16px "Noto Sans KR", sans-serif';
   let maxWidth = 0;
   for (const v of vocabulary) {
@@ -459,19 +503,22 @@ function drawVocabulary(ctx: CanvasRenderingContext2D, vocabulary: VocabItem[]) 
     maxWidth = Math.max(maxWidth, ctx.measureText(text).width);
   }
 
-  const boxW = maxWidth + padding * 2 + 8;
-  const boxH = vocabulary.length * lineHeight + padding * 2;
+  const boxW = (maxWidth + padding * 2 + 8) * 1.2;
+  const boxH = (vocabulary.length * lineHeight + padding * 2) * 1.2;
 
-  // 반투명 배경
-  ctx.fillStyle = 'rgba(0,0,0,0.5)';
-  const r = 10;
+  // 반투명 배경 (둥근 사각형)
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  const r = 12;
   ctx.beginPath();
   ctx.moveTo(startX + r, startY);
   ctx.lineTo(startX + boxW - r, startY);
-  ctx.arc(startX + boxW - r, startY + r, r, -Math.PI / 2, Math.PI / 2);
+  ctx.arcTo(startX + boxW, startY, startX + boxW, startY + r, r);
+  ctx.lineTo(startX + boxW, startY + boxH - r);
+  ctx.arcTo(startX + boxW, startY + boxH, startX + boxW - r, startY + boxH, r);
   ctx.lineTo(startX + r, startY + boxH);
-  ctx.arc(startX + r, startY + r, r, Math.PI / 2, -Math.PI / 2);
-  // simple rounded rect fallback for bottom corners
+  ctx.arcTo(startX, startY + boxH, startX, startY + boxH - r, r);
+  ctx.lineTo(startX, startY + r);
+  ctx.arcTo(startX, startY, startX + r, startY, r);
   ctx.closePath();
   ctx.fill();
 
@@ -778,7 +825,7 @@ export const renderDiaryVideo = async ({
 };
 
 // ═══════════════════════════════════════════════════════════
-// 🎨 일기 프레임 그리기
+// 🎨 일기 프레임 그리기 (상하 분할: 위=단어, 아래=영어+한글)
 // ═══════════════════════════════════════════════════════════
 
 function drawDiaryFrame(
@@ -805,47 +852,72 @@ function drawDiaryFrame(
     ctx.fillRect(0, y, W, 1);
   }
 
-  // 상단 장식 라인
-  ctx.fillStyle = '#D4C9B8';
-  ctx.fillRect(60, 50, W - 120, 2);
-  ctx.fillRect(60, H - 50, W - 120, 2);
-
   // ── 콘텐츠 영역 (페이드 적용) ──
   ctx.globalAlpha = Math.max(0, Math.min(1, fadeAlpha));
+
+  // 화면 분할: 위쪽 50% = 단어, 아래쪽 50% = 문장
+  const dividerY = H * 0.48;
+
+  // ── 구분선 ──
+  ctx.fillStyle = '#D4C9B8';
+  ctx.fillRect(60, dividerY, W - 120, 1.5);
 
   // ── 페이지 인디케이터 (우상단) ──
   ctx.font = 'bold 16px "Noto Sans KR", sans-serif';
   ctx.fillStyle = '#A09888';
   ctx.textAlign = 'right';
   ctx.textBaseline = 'top';
-  ctx.fillText(`${currentPage} / ${totalPages}`, W - 70, 65);
+  ctx.fillText(`${currentPage} / ${totalPages}`, W - 50, 20);
 
-  // ── 왼쪽 상단: 단어장 ──
+  // ═══════════════════════════════════════
+  // 위쪽: 단어장 (3열 레이아웃)
+  // ═══════════════════════════════════════
   if (scene.vocabulary && scene.vocabulary.length > 0) {
-    drawDiaryVocabulary(ctx, scene.vocabulary);
+    drawDiaryVocabulary3Col(ctx, scene.vocabulary, dividerY);
+  } else {
+    // 단어가 없으면 안내 텍스트
+    ctx.font = '18px "Noto Sans KR", sans-serif';
+    ctx.fillStyle = '#B0A898';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('📚 No vocabulary for this sentence', W / 2, dividerY / 2);
   }
 
-  // ── 중앙: 영어 문장 (크게) ──
-  const engFontSize = 32;
+  // ═══════════════════════════════════════
+  // 아래쪽: 영어 문장 + 한글 해석
+  // ═══════════════════════════════════════
+  const bottomAreaTop = dividerY + 20;
+  const bottomAreaHeight = H - bottomAreaTop - 40;
+  const bottomCenterY = bottomAreaTop + bottomAreaHeight / 2;
+
+  // 영어 문장 (크게, 진한 색)
+  const engFontSize = 30;
   ctx.font = `bold ${engFontSize}px "Noto Sans KR", sans-serif`;
-  ctx.fillStyle = '#2D2A26';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
 
-  const centerY = H * 0.42;
-  const lineGap = engFontSize * 1.6;
-  // 영어 문장 줄바꿈 처리
-  const wrappedEngLines: string[] = [];
-  for (const line of scene.englishLines) {
-    const wrapped = wrapText(ctx, line, W - 200);
-    wrappedEngLines.push(...wrapped);
-  }
+  const engText = scene.englishLines[0] || '';
+  const wrappedEng = wrapText(ctx, engText, W - 160);
+  const engLineGap = engFontSize * 1.5;
+  const totalEngHeight = wrappedEng.length * engLineGap;
 
-  const wrappedEngHeight = wrappedEngLines.length * lineGap;
-  const engStartYAdjusted = centerY - wrappedEngHeight / 2 + lineGap / 2;
+  // 한글 번역 준비
+  const koFontSize = 22;
+  ctx.font = `500 ${koFontSize}px "Noto Sans KR", sans-serif`;
+  const koText = scene.koreanLines[0] || '';
+  const wrappedKo = wrapText(ctx, koText, W - 160);
+  const koLineGap = koFontSize * 1.4;
+  const totalKoHeight = wrappedKo.length * koLineGap;
 
-  wrappedEngLines.forEach((line, i) => {
-    const y = engStartYAdjusted + i * lineGap;
+  // 영어+한글 전체 높이 계산 (간격 포함)
+  const gapBetween = 24;
+  const totalTextHeight = totalEngHeight + gapBetween + totalKoHeight;
+  const textStartY = bottomCenterY - totalTextHeight / 2;
+
+  // 영어 문장 그리기
+  ctx.font = `bold ${engFontSize}px "Noto Sans KR", sans-serif`;
+  wrappedEng.forEach((line, i) => {
+    const y = textStartY + i * engLineGap + engLineGap / 2;
 
     // 부드러운 텍스트 그림자
     ctx.fillStyle = 'rgba(0, 0, 0, 0.06)';
@@ -856,101 +928,127 @@ function drawDiaryFrame(
     ctx.fillText(line, W / 2, y);
   });
 
-  // ── 하단: 한글 번역 (자막) ──
-  const koFontSize = 22;
+  // 한글 번역 그리기
   ctx.font = `500 ${koFontSize}px "Noto Sans KR", sans-serif`;
   ctx.fillStyle = '#7A756D';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'bottom';
-
-  const koLineGap = koFontSize * 1.5;
-  const koBottomMargin = 70;
-
-  // 한글 줄바꿈 처리
-  const wrappedKoLines: string[] = [];
-  for (const line of scene.koreanLines) {
-    const wrapped = wrapText(ctx, line, W - 200);
-    wrappedKoLines.push(...wrapped);
-  }
-
-  const koStartY = H - koBottomMargin - (wrappedKoLines.length - 1) * koLineGap;
-
-  wrappedKoLines.forEach((line, i) => {
-    const y = koStartY + i * koLineGap;
+  const koStartY = textStartY + totalEngHeight + gapBetween;
+  wrappedKo.forEach((line, i) => {
+    const y = koStartY + i * koLineGap + koLineGap / 2;
     ctx.fillText(line, W / 2, y);
   });
 
-  // ── 하단 중앙 장식: 작은 점 ──
+  // ── 하단 장식: 작은 점 ──
   ctx.fillStyle = '#C4B9A8';
   ctx.beginPath();
-  ctx.arc(W / 2, H - 30, 3, 0, Math.PI * 2);
+  ctx.arc(W / 2, H - 20, 3, 0, Math.PI * 2);
   ctx.fill();
 
   ctx.globalAlpha = 1;
 }
 
-/** 일기 영상 단어장 (좌상단, 크림 배경에 맞는 스타일) */
-function drawDiaryVocabulary(ctx: CanvasRenderingContext2D, vocabulary: VocabItem[]) {
-  const maxDisplay = Math.min(vocabulary.length, 6); // 최대 6개 표시
-  const startX = 70;
-  const startY = 75;
-  const lineHeight = 28;
-  const padding = 12;
+/**
+ * 일기 영상 단어장 (3열 레이아웃: 왼쪽 / 중간 / 오른쪽)
+ * 열당 최대 5개, 총 최대 15개 단어 표시
+ */
+function drawDiaryVocabulary3Col(
+  ctx: CanvasRenderingContext2D,
+  vocabulary: VocabItem[],
+  dividerY: number,
+) {
+  const W = WIDTH;
+  const maxPerCol = 5;
+  const maxTotal = maxPerCol * 3; // 15개
+  const displayVocab = vocabulary.slice(0, maxTotal);
 
-  // 배경 사각형 크기 계산
+  // 3열로 나누기
+  const col1 = displayVocab.slice(0, maxPerCol);
+  const col2 = displayVocab.slice(maxPerCol, maxPerCol * 2);
+  const col3 = displayVocab.slice(maxPerCol * 2, maxPerCol * 3);
+  const columns = [col1, col2, col3].filter(c => c.length > 0);
+
+  // 레이아웃 설정
+  const topMargin = 50;
+  const areaHeight = dividerY - topMargin - 20;
+  const lineHeight = 30;
+  const padding = 16;
+  const colGap = 20;
+
+  // 각 열의 너비 계산
+  const totalWidth = W - 100; // 좌우 여백 50px씩
+  const colWidth = columns.length > 1
+    ? (totalWidth - colGap * (columns.length - 1)) / columns.length
+    : totalWidth * 0.5;
+
+  // 열 시작 X 좌표 계산 (중앙 정렬)
+  const totalColsWidth = colWidth * columns.length + colGap * (columns.length - 1);
+  const startXBase = (W - totalColsWidth) / 2;
+
+  // 📚 헤더
   ctx.font = 'bold 15px "Noto Sans KR", sans-serif';
-  let maxWidth = 0;
-  for (let i = 0; i < maxDisplay; i++) {
-    const text = `${vocabulary[i].word}: ${vocabulary[i].meaning}`;
-    maxWidth = Math.max(maxWidth, ctx.measureText(text).width);
-  }
-
-  const boxW = maxWidth + padding * 2 + 16;
-  const boxH = maxDisplay * lineHeight + padding * 2;
-
-  // 배경 (반투명 크림 + 테두리)
-  ctx.fillStyle = 'rgba(237, 231, 218, 0.85)';
-  roundRect(ctx, startX, startY, boxW, boxH, 10);
-  ctx.fill();
-
-  ctx.strokeStyle = '#D4C9B8';
-  ctx.lineWidth = 1;
-  roundRect(ctx, startX, startY, boxW, boxH, 10);
-  ctx.stroke();
-
-  // 왼쪽 악센트 라인
-  ctx.fillStyle = '#C09050';
-  ctx.fillRect(startX + 5, startY + 8, 3, boxH - 16);
-
-  // 📖 헤더
-  ctx.font = 'bold 12px "Noto Sans KR", sans-serif';
   ctx.fillStyle = '#A09080';
-  ctx.textAlign = 'left';
-  ctx.textBaseline = 'alphabetic';
-  ctx.fillText('📚 Words', startX + padding + 8, startY + 10);
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'top';
+  ctx.fillText('📚 Vocabulary', W / 2, topMargin - 30);
 
-  // 단어 텍스트
-  for (let i = 0; i < maxDisplay; i++) {
-    const v = vocabulary[i];
-    const y = startY + padding + 16 + i * lineHeight;
+  // 각 열 그리기
+  columns.forEach((colVocab, colIdx) => {
+    const colX = startXBase + colIdx * (colWidth + colGap);
+    const maxRows = Math.min(colVocab.length, maxPerCol);
+    const boxH = maxRows * lineHeight + padding * 2;
+    const boxY = topMargin + (areaHeight - boxH) / 2; // 수직 중앙 정렬
 
-    // 영어 단어 (진한 갈색)
-    ctx.font = 'bold 15px "Noto Sans KR", sans-serif';
-    ctx.fillStyle = '#6B4C30';
-    const wordText = v.word + ': ';
-    ctx.fillText(wordText, startX + padding + 8, y);
+    // 열 배경 (반투명 크림 + 둥근 모서리)
+    ctx.fillStyle = 'rgba(237, 231, 218, 0.8)';
+    roundRect(ctx, colX, boxY, colWidth, boxH, 10);
+    ctx.fill();
 
-    // 한글 뜻 (회갈색)
-    const wordWidth = ctx.measureText(wordText).width;
-    ctx.font = '14px "Noto Sans KR", sans-serif';
-    ctx.fillStyle = '#8A7A68';
-    ctx.fillText(v.meaning, startX + padding + 8 + wordWidth, y);
-  }
+    ctx.strokeStyle = '#D4C9B8';
+    ctx.lineWidth = 1;
+    roundRect(ctx, colX, boxY, colWidth, boxH, 10);
+    ctx.stroke();
 
-  if (vocabulary.length > maxDisplay) {
+    // 왼쪽 악센트 라인
+    ctx.fillStyle = '#C09050';
+    ctx.fillRect(colX + 5, boxY + 8, 3, boxH - 16);
+
+    // 단어 텍스트
+    for (let i = 0; i < maxRows; i++) {
+      const v = colVocab[i];
+      const y = boxY + padding + i * lineHeight + lineHeight / 2;
+
+      // 영어 단어 (진한 갈색, 볼드)
+      ctx.font = 'bold 14px "Noto Sans KR", sans-serif';
+      ctx.fillStyle = '#6B4C30';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'middle';
+      const wordText = v.word;
+      ctx.fillText(wordText, colX + padding + 8, y);
+
+      // 한글 뜻 (회갈색)
+      const wordWidth = ctx.measureText(wordText + ' ').width;
+      ctx.font = '13px "Noto Sans KR", sans-serif';
+      ctx.fillStyle = '#8A7A68';
+
+      // 뜻이 열 너비를 초과하면 잘라내기
+      const meaningMaxWidth = colWidth - padding * 2 - 8 - wordWidth - 4;
+      let meaningText = v.meaning;
+      if (ctx.measureText(meaningText).width > meaningMaxWidth && meaningMaxWidth > 20) {
+        while (ctx.measureText(meaningText + '…').width > meaningMaxWidth && meaningText.length > 1) {
+          meaningText = meaningText.slice(0, -1);
+        }
+        meaningText += '…';
+      }
+      ctx.fillText(meaningText, colX + padding + 8 + wordWidth + 4, y);
+    }
+  });
+
+  // 표시하지 못한 단어가 있으면 안내
+  if (vocabulary.length > maxTotal) {
     ctx.font = '12px "Noto Sans KR", sans-serif';
     ctx.fillStyle = '#A09080';
-    ctx.fillText(`+${vocabulary.length - maxDisplay}개 더`, startX + padding + 8, startY + padding + 16 + maxDisplay * lineHeight);
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.fillText(`+${vocabulary.length - maxTotal}개 더`, W / 2, dividerY - 18);
   }
 }
 

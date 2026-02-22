@@ -29,6 +29,9 @@ interface PdfOptions {
 const PAGE_W = 297;
 const PAGE_H = 210;
 const MARGIN = 18;
+const DPR = 2; // renderText에서 사용하는 고해상도 배율
+const MM_PER_PX = 0.264583; // 1 논리 픽셀 = 0.264583mm (96dpi 기준)
+const PX_TO_MM = MM_PER_PX / DPR; // 캔버스 2x 픽셀 → mm 변환 (dpr 보정 포함)
 
 export const generateStoryBookPdf = async ({
   title,
@@ -121,7 +124,7 @@ async function drawCoverPage(doc: jsPDF, title: string, language: 'ko' | 'en' = 
   placeCanvas(doc, titleCanvas, PAGE_H * 0.32, 'center');
 
   // 하단 장식선
-  const titleBottom = PAGE_H * 0.32 + titleCanvas.height * 0.264583 / 2 + 8;
+  const titleBottom = PAGE_H * 0.32 + titleCanvas.height * PX_TO_MM / 2 + 8;
   doc.setDrawColor(180, 160, 255);
   doc.line(PAGE_W * 0.35, titleBottom, PAGE_W * 0.65, titleBottom);
 
@@ -193,8 +196,8 @@ async function drawScenePage(doc: jsPDF, scene: SceneForPdf, index: number, _tot
   const innerW = cardW - textPadX * 2;
   const innerH = cardH - textPadY * 2;
 
-  // 본문 텍스트 (전체 동일 크기)
-  const maxWidthPx = innerW / 0.264583; // mm → px
+  // 본문 텍스트 (전체 동일 크기, dpr 보정)
+  const maxWidthPx = innerW / MM_PER_PX; // mm → 논리 픽셀 (1x)
   const bodyCanvas = renderText(scene.text, {
     fontSize: 19,
     fontWeight: 'normal',
@@ -204,15 +207,12 @@ async function drawScenePage(doc: jsPDF, scene: SceneForPdf, index: number, _tot
     textAlign: 'left',
   });
 
-  const bodyW = Math.min(bodyCanvas.width * 0.264583, innerW);
-  const bodyH_raw = bodyCanvas.height * 0.264583;
-  // 텍스트가 카드 안에 맞도록: 높이 초과 시 비율 축소 (잘리지 않게)
-  const bodyH = Math.min(bodyH_raw, innerH);
-  const bodyFinalW = bodyH < bodyH_raw ? bodyW * (bodyH / bodyH_raw) : bodyW;
+  const bodyW = Math.min(bodyCanvas.width * PX_TO_MM, innerW);
+  const bodyH = bodyCanvas.height * PX_TO_MM;
   doc.addImage(
     bodyCanvas.toDataURL('image/png'), 'PNG',
     cardX + textPadX, cardY + textPadY,
-    bodyFinalW, bodyH
+    bodyW, bodyH
   );
 
   // ── 하단: 페이지 번호 (미니멀) ──
@@ -268,8 +268,7 @@ async function drawTranslationPages(doc: jsPDF, scenes: SceneForPdf[]) {
   const EN_FONT_SIZE = 13;
   const KO_FONT_SIZE = 13;
   const contentMaxW = PAGE_W - MARGIN * 2 - 16;
-  const maxWidthPx = contentMaxW / 0.264583;
-  const PX_TO_MM = 0.264583;
+  const maxWidthPx = contentMaxW / MM_PER_PX; // mm → 논리 픽셀 (1x)
 
   // 새 페이지 시작 헬퍼
   const startNewPage = (isFirst: boolean): number => {
@@ -458,11 +457,11 @@ function renderText(text: string, options: {
   return canvas;
 }
 
-/** Canvas 이미지를 PDF 페이지에 배치 */
+/** Canvas 이미지를 PDF 페이지에 배치 (dpr 보정 포함) */
 function placeCanvas(doc: jsPDF, canvas: HTMLCanvasElement, y: number, align: 'center' | 'left' | 'right') {
   const data = canvas.toDataURL('image/png');
-  const w = Math.min(canvas.width * 0.264583, PAGE_W - MARGIN * 2); // px → mm (1px ≈ 0.264583mm)
-  const h = canvas.height * 0.264583;
+  const w = Math.min(canvas.width * PX_TO_MM, PAGE_W - MARGIN * 2);
+  const h = canvas.height * PX_TO_MM;
   let x: number;
   if (align === 'center') x = (PAGE_W - w) / 2;
   else if (align === 'right') x = PAGE_W - MARGIN - w;
@@ -526,9 +525,9 @@ export const generateExamPdf = async ({
   const PW = 210;
   const PH = 297;
   const M = 16;
-  const PX = 0.264583;
+  const PX = PX_TO_MM; // canvas px → mm (dpr 보정 포함)
   const contentW = PW - M * 2;
-  const maxWpx = contentW / PX;
+  const maxWpx = contentW / MM_PER_PX; // mm → 논리 픽셀 (1x)
 
   // ── 표지 ──
   onProgress?.(5, '표지 생성 중...');
@@ -832,9 +831,9 @@ export const generateDiaryPdf = async ({
   const PW = 210; // A4 세로 너비
   const PH = 297; // A4 세로 높이
   const M = 18;   // 마진
-  const PX = 0.264583;
+  const PX = PX_TO_MM; // canvas px → mm (dpr 보정 포함)
   const contentW = PW - M * 2;
-  const maxWpx = contentW / PX;
+  const maxWpx = contentW / MM_PER_PX; // mm → 논리 픽셀 (1x)
 
   // ═══ 표지 ═══
   doc.setFillColor(30, 25, 45);
@@ -858,120 +857,135 @@ export const generateDiaryPdf = async ({
   doc.addImage(coverSub.toDataURL('image/png'), 'PNG',
     (PW - coverSubW) / 2, PH * 0.35 + coverTitleH + 10, coverSubW, coverSubH);
 
-  // ═══ 단어장 페이지 ═══
-  doc.addPage();
-  doc.setFillColor(252, 251, 248);
-  doc.rect(0, 0, PW, PH, 'F');
+  // ═══ 단어장 페이지 (표 형태: No. | Word | Meaning) ═══
+  {
+    doc.addPage();
+    doc.setFillColor(252, 251, 248);
+    doc.rect(0, 0, PW, PH, 'F');
 
-  const vocabTitle = renderText('📚 Vocabulary · 단어장', {
-    fontSize: 22, fontWeight: 'bold', color: '#3A3A4A',
-    maxWidth: maxWpx, lineHeight: 1.3, textAlign: 'center',
-  });
-  const vtW = Math.min(vocabTitle.width * PX, contentW);
-  const vtH = vocabTitle.height * PX;
-  doc.addImage(vocabTitle.toDataURL('image/png'), 'PNG', (PW - vtW) / 2, M, vtW, vtH);
-
-  let vy = M + vtH + 8;
-
-  // 유형별 분류
-  const idioms = vocabulary.filter(v => v.type === 'idiom');
-  const phrases = vocabulary.filter(v => v.type === 'phrase');
-  const words = vocabulary.filter(v => v.type === 'word');
-
-  const drawVocabSection = (items: typeof vocabulary, label: string, color: string) => {
-    if (items.length === 0) return;
-
-    // 페이지 넘침 체크
-    if (vy > PH - 30) {
-      doc.addPage();
-      doc.setFillColor(252, 251, 248);
-      doc.rect(0, 0, PW, PH, 'F');
-      vy = M;
-    }
-
-    const labelCanvas = renderText(label, {
-      fontSize: 13, fontWeight: 'bold', color,
-      maxWidth: maxWpx, lineHeight: 1.2, textAlign: 'left',
+    const vocabTitle = renderText('Vocabulary · 단어장', {
+      fontSize: 22, fontWeight: 'bold', color: '#3A3A4A',
+      maxWidth: maxWpx, lineHeight: 1.3, textAlign: 'center',
     });
-    const lH = labelCanvas.height * PX;
-    const lW = Math.min(labelCanvas.width * PX, contentW);
-    doc.addImage(labelCanvas.toDataURL('image/png'), 'PNG', M, vy, lW, lH);
-    vy += lH + 3;
+    const vtW = Math.min(vocabTitle.width * PX, contentW);
+    const vtH = vocabTitle.height * PX;
+    doc.addImage(vocabTitle.toDataURL('image/png'), 'PNG', (PW - vtW) / 2, M, vtW, vtH);
 
-    for (const item of items) {
-      if (vy > PH - 20) {
+    const tableStartY = M + vtH + 8;
+
+    // 20개 이하: 단일 표, 21개 이상: 2열 표
+    const useDoubleCol = vocabulary.length > 20;
+
+    if (useDoubleCol) {
+      const half = Math.ceil(vocabulary.length / 2);
+      const leftItems = vocabulary.slice(0, half);
+      const rightItems = vocabulary.slice(half);
+      const colW = (contentW - 6) / 2; // 6mm gap
+      const colWpx = colW / MM_PER_PX;
+
+      const leftCanvas = renderDiaryVocabTable(leftItems, 1, colWpx);
+      const rightCanvas = renderDiaryVocabTable(rightItems, half + 1, colWpx);
+
+      const leftH = leftCanvas.height * PX;
+      const rightH = rightCanvas.height * PX;
+      const leftW = leftCanvas.width * PX;
+      const rightW = rightCanvas.width * PX;
+
+      // 높이 초과 시 페이지 나누기 (2열이면 보통 한 페이지에 충분)
+      let vy = tableStartY;
+      if (vy + Math.max(leftH, rightH) > PH - M) {
         doc.addPage();
         doc.setFillColor(252, 251, 248);
         doc.rect(0, 0, PW, PH, 'F');
         vy = M;
       }
+      doc.addImage(leftCanvas.toDataURL('image/png'), 'PNG', M, vy, leftW, leftH);
+      doc.addImage(rightCanvas.toDataURL('image/png'), 'PNG', M + colW + 6, vy, rightW, rightH);
+    } else {
+      // 단일 표 (중앙 정렬)
+      const tableWpx = Math.min(maxWpx, 550);
+      const tableCanvas = renderDiaryVocabTable(vocabulary, 1, tableWpx);
+      const tW = tableCanvas.width * PX;
+      const tH = tableCanvas.height * PX;
+      doc.addImage(tableCanvas.toDataURL('image/png'), 'PNG',
+        (PW - tW) / 2, tableStartY, tW, tH);
+    }
+  }
 
-      const line = `${item.word}  —  ${item.meaning}`;
-      const lineCanvas = renderText(line, {
-        fontSize: 11, fontWeight: 'normal', color: '#4A4A5A',
-        maxWidth: maxWpx, lineHeight: 1.5, textAlign: 'left',
+  // ═══ 한줄해석 페이지 (좌: 영문 / 우: 한글 해석) ═══
+  {
+    doc.addPage();
+    doc.setFillColor(255, 255, 255);
+    doc.rect(0, 0, PW, PH, 'F');
+
+    const sentTitle = renderText('한줄해석 · Line by Line', {
+      fontSize: 22, fontWeight: 'bold', color: '#3A3A4A',
+      maxWidth: maxWpx, lineHeight: 1.3, textAlign: 'center',
+    });
+    const stW = Math.min(sentTitle.width * PX, contentW);
+    const stH = sentTitle.height * PX;
+    doc.addImage(sentTitle.toDataURL('image/png'), 'PNG', (PW - stW) / 2, M, stW, stH);
+
+    let sy = M + stH + 10;
+
+    // 좌우 분할: 영문(좌 70%) | 한글(우 30%)
+    const gap = 4; // mm, 중간 간격
+    const engW = (contentW - gap) * 0.7;
+    const koW_col = (contentW - gap) * 0.3;
+    const engWpx = engW / MM_PER_PX;
+    const koWpx = koW_col / MM_PER_PX;
+    const leftX = M;
+    const rightX = M + engW + gap;
+
+    // 중앙 세로선
+    const dividerX = M + engW + gap / 2;
+
+    for (let i = 0; i < sentences.length; i++) {
+      const s = sentences[i];
+
+      // 영어 문장 (좌측, 70% 너비, 폰트 20% 확대)
+      const enCanvas = renderText(`${i + 1}. ${s.english}`, {
+        fontSize: 14, fontWeight: 'bold', color: '#2D2D3F',
+        maxWidth: engWpx - 8, lineHeight: 1.7, textAlign: 'left',
       });
-      const lineH = lineCanvas.height * PX;
-      const lineW = Math.min(lineCanvas.width * PX, contentW);
-      doc.addImage(lineCanvas.toDataURL('image/png'), 'PNG', M + 4, vy, lineW, lineH);
-      vy += lineH + 1;
+      const enH = enCanvas.height * PX;
+      const enW = Math.min(enCanvas.width * PX, engW);
+
+      // 한글 번역 (우측, 30% 너비, 폰트 유지)
+      const koCanvas = renderText(s.korean, {
+        fontSize: 11, fontWeight: 'normal', color: '#555555',
+        maxWidth: koWpx - 8, lineHeight: 1.7, textAlign: 'left',
+      });
+      const koH = koCanvas.height * PX;
+      const koW = Math.min(koCanvas.width * PX, koW_col);
+
+      const pairH = Math.max(enH, koH) + 4;
+
+      // 페이지 넘침 체크
+      if (sy + pairH > PH - M) {
+        doc.addPage();
+        doc.setFillColor(255, 255, 255);
+        doc.rect(0, 0, PW, PH, 'F');
+        sy = M;
+      }
+
+      // 영어 (좌)
+      doc.addImage(enCanvas.toDataURL('image/png'), 'PNG', leftX, sy, enW, enH);
+      // 한글 (우)
+      doc.addImage(koCanvas.toDataURL('image/png'), 'PNG', rightX, sy, koW, koH);
+
+      // 구분선 (아래)
+      doc.setDrawColor(220, 220, 220);
+      doc.setLineWidth(0.3);
+      doc.line(leftX, sy + pairH - 2, rightX + koW_col, sy + pairH - 2);
+
+      // 중앙 세로선
+      doc.setDrawColor(200, 200, 200);
+      doc.setLineWidth(0.2);
+      doc.line(dividerX, sy - 1, dividerX, sy + pairH - 3);
+
+      sy += pairH;
     }
-
-    vy += 5;
-  };
-
-  drawVocabSection(idioms, '🔶 이디엄 (Idioms)', '#7C3AED');
-  drawVocabSection(phrases, '🔷 구동사 (Phrasal Verbs)', '#2563EB');
-  drawVocabSection(words, '📝 단어 (Words)', '#4A4A5A');
-
-  // ═══ 문장 페이지들 ═══
-  doc.addPage();
-  doc.setFillColor(255, 255, 255);
-  doc.rect(0, 0, PW, PH, 'F');
-
-  const sentTitle = renderText('📝 My English Diary', {
-    fontSize: 22, fontWeight: 'bold', color: '#3A3A4A',
-    maxWidth: maxWpx, lineHeight: 1.3, textAlign: 'center',
-  });
-  const stW = Math.min(sentTitle.width * PX, contentW);
-  const stH = sentTitle.height * PX;
-  doc.addImage(sentTitle.toDataURL('image/png'), 'PNG', (PW - stW) / 2, M, stW, stH);
-
-  let sy = M + stH + 10;
-
-  for (let i = 0; i < sentences.length; i++) {
-    const s = sentences[i];
-
-    // 영어 문장
-    const enCanvas = renderText(`${i + 1}. ${s.english}`, {
-      fontSize: 13, fontWeight: 'bold', color: '#2D2D3F',
-      maxWidth: maxWpx - 20, lineHeight: 1.7, textAlign: 'left',
-    });
-    const enH = enCanvas.height * PX;
-    const enW = Math.min(enCanvas.width * PX, contentW);
-
-    // 한글 번역
-    const koCanvas = renderText(s.korean, {
-      fontSize: 12, fontWeight: 'normal', color: '#7A7A8A',
-      maxWidth: maxWpx - 20, lineHeight: 1.7, textAlign: 'left',
-    });
-    const koH = koCanvas.height * PX;
-    const koW = Math.min(koCanvas.width * PX, contentW);
-
-    const blockH = enH + koH + 5;
-
-    // 페이지 넘침 체크
-    if (sy + blockH > PH - 20) {
-      doc.addPage();
-      doc.setFillColor(255, 255, 255);
-      doc.rect(0, 0, PW, PH, 'F');
-      sy = M;
-    }
-
-    doc.addImage(enCanvas.toDataURL('image/png'), 'PNG', M + 2, sy, enW, enH);
-    sy += enH + 1;
-    doc.addImage(koCanvas.toDataURL('image/png'), 'PNG', M + 8, sy, koW, koH);
-    sy += koH + 6;
   }
 
   // ═══ 엔딩 ═══
@@ -991,3 +1005,128 @@ export const generateDiaryPdf = async ({
   console.log('[PDF] ✅ 영어일기 PDF 생성 완료');
   return doc.output('blob');
 };
+
+/**
+ * 📊 단어장 표를 Canvas로 렌더링
+ * No. | Word | Meaning 형태의 깔끔한 테이블
+ */
+function renderDiaryVocabTable(
+  items: { word: string; meaning: string }[],
+  startNo: number,
+  logicalWidth: number,
+): HTMLCanvasElement {
+  const dpr = 2;
+  const noColW = Math.round(logicalWidth * 0.1);
+  const wordColW = Math.round(logicalWidth * 0.35);
+  const meanColW = logicalWidth - noColW - wordColW;
+  const rowH = 26;
+  const headerH = 30;
+  const rows = items.length;
+  const totalH = headerH + rows * rowH + 1;
+
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.ceil(logicalWidth * dpr);
+  canvas.height = Math.ceil(totalH * dpr);
+  const ctx = canvas.getContext('2d')!;
+  ctx.scale(dpr, dpr);
+
+  const font = (weight: string, size: number) =>
+    `${weight} ${size}px "Noto Sans KR", sans-serif`;
+
+  // ── 헤더 배경 ──
+  ctx.fillStyle = '#F0F0F0';
+  ctx.fillRect(0, 0, logicalWidth, headerH);
+
+  // ── 헤더 텍스트 ──
+  ctx.font = font('bold', 11);
+  ctx.fillStyle = '#333333';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText('No.', noColW / 2, headerH / 2);
+  ctx.fillText('Word', noColW + wordColW / 2, headerH / 2);
+  ctx.fillText('Meaning', noColW + wordColW + meanColW / 2, headerH / 2);
+
+  // ── 데이터 행 ──
+  for (let i = 0; i < rows; i++) {
+    const y = headerH + i * rowH;
+
+    // 줄무늬 배경
+    if (i % 2 === 1) {
+      ctx.fillStyle = '#F9F9F9';
+      ctx.fillRect(0, y, logicalWidth, rowH);
+    }
+
+    const v = items[i];
+
+    // No.
+    ctx.font = font('normal', 10);
+    ctx.fillStyle = '#888888';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(startNo + i).padStart(2, '0'), noColW / 2, y + rowH / 2);
+
+    // Word (볼드, 진한 색)
+    ctx.font = font('bold', 11);
+    ctx.fillStyle = '#222222';
+    ctx.textAlign = 'left';
+    // 클리핑: 단어가 열 너비를 초과하면 잘라내기
+    let wordText = v.word;
+    const maxWordW = wordColW - 16;
+    if (ctx.measureText(wordText).width > maxWordW) {
+      while (ctx.measureText(wordText + '…').width > maxWordW && wordText.length > 1) {
+        wordText = wordText.slice(0, -1);
+      }
+      wordText += '…';
+    }
+    ctx.fillText(wordText, noColW + 8, y + rowH / 2);
+
+    // Meaning (한글)
+    ctx.font = font('normal', 10);
+    ctx.fillStyle = '#555555';
+    let meaningText = v.meaning;
+    const maxMeanW = meanColW - 16;
+    if (ctx.measureText(meaningText).width > maxMeanW) {
+      while (ctx.measureText(meaningText + '…').width > maxMeanW && meaningText.length > 1) {
+        meaningText = meaningText.slice(0, -1);
+      }
+      meaningText += '…';
+    }
+    ctx.fillText(meaningText, noColW + wordColW + 8, y + rowH / 2);
+  }
+
+  // ── 테두리 그리기 ──
+  const totalDrawnH = headerH + rows * rowH;
+
+  // 외곽선
+  ctx.strokeStyle = '#CCCCCC';
+  ctx.lineWidth = 1;
+  ctx.strokeRect(0.5, 0.5, logicalWidth - 1, totalDrawnH - 1);
+
+  // 헤더 하단선 (두껍게)
+  ctx.strokeStyle = '#AAAAAA';
+  ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  ctx.moveTo(0, headerH);
+  ctx.lineTo(logicalWidth, headerH);
+  ctx.stroke();
+
+  // 열 구분선
+  ctx.strokeStyle = '#DDDDDD';
+  ctx.lineWidth = 0.5;
+  ctx.beginPath();
+  ctx.moveTo(noColW, 0);
+  ctx.lineTo(noColW, totalDrawnH);
+  ctx.moveTo(noColW + wordColW, 0);
+  ctx.lineTo(noColW + wordColW, totalDrawnH);
+  ctx.stroke();
+
+  // 행 구분선
+  for (let i = 1; i < rows; i++) {
+    ctx.beginPath();
+    ctx.moveTo(0, headerH + i * rowH);
+    ctx.lineTo(logicalWidth, headerH + i * rowH);
+    ctx.stroke();
+  }
+
+  return canvas;
+}

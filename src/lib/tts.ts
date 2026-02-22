@@ -10,15 +10,18 @@ import type { StoryLanguage } from './storyStore';
  * 4. 브라우저 내장 Web Speech API (최종 폴백, 항상 작동)
  * 
  * @param language 'ko' | 'en' – 영어 스토리북은 영어 음성 사용
+ * @param voiceOverride Gemini 음성 이름 오버라이드 (예: 'Aoede', 'Charon')
  */
-export const generateSpeech = async (text: string, language: StoryLanguage = 'ko'): Promise<Blob> => {
+export const generateSpeech = async (text: string, language: StoryLanguage = 'ko', voiceOverride?: string): Promise<Blob> => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     let lastError: any;
     const { useGeminiTTS } = getSettings();
 
-    // 사용자가 선택한 Gemini 음성 (Settings에서 설정)
-    const geminiVoice = useGeminiTTS ? getSettings().geminiVoice || 'Aoede' : 'Aoede';
-    const streamVoice = language === 'en' ? 'Matthew' : 'Seoyeon'; // AWS Polly 영어/한국어
+    // 사용자가 선택한 Gemini 음성 (Settings에서 설정) 또는 오버라이드
+    const geminiVoice = voiceOverride || (useGeminiTTS ? getSettings().geminiVoice || 'Aoede' : 'Aoede');
+    const streamVoice = language === 'en'
+      ? (voiceOverride === 'Charon' || voiceOverride === 'Fenrir' || voiceOverride === 'Orus' || voiceOverride === 'Puck' ? 'Matthew' : 'Joanna')
+      : 'Seoyeon'; // AWS Polly 영어(남/여)/한국어
     const gttsTl = language === 'en' ? 'en' : 'ko';
 
     // ─── 1. Gemini Native Audio ───

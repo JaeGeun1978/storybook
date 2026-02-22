@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { PlusCircle, Trash2, PlayCircle, Clock, CheckCircle2, Sparkles, Key, Globe2, BookOpen, X, PenLine, FileText } from 'lucide-react';
+import { PlusCircle, Trash2, PlayCircle, Clock, CheckCircle2, Sparkles, Key, Globe2, BookOpen, X, PenLine, FileText, Newspaper } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { createNewProject, getProjects, deleteProject, type StoryProject, type StoryLanguage } from '../lib/storyStore';
 import { getDiaries, deleteDiary, createNewDiary, type DiaryEntry } from '../lib/diaryStore';
 import { getExams, deleteExam, createNewExam, type ExamEntry } from '../lib/examStore';
+import { getPassages, deletePassage, createNewPassage, type PassageEntry } from '../lib/passageStore';
 import { getSettings } from '../lib/store';
 import { ApiKeyModal } from '../components/ApiKeyModal';
 
@@ -12,6 +13,7 @@ export const DashboardPage: React.FC = () => {
   const [projects, setProjects] = useState<StoryProject[]>([]);
   const [diaries, setDiaries] = useState<DiaryEntry[]>([]);
   const [exams, setExams] = useState<ExamEntry[]>([]);
+  const [passages, setPassages] = useState<PassageEntry[]>([]);
   const [showApiKeyModal, setShowApiKeyModal] = useState(false);
   const [showLangModal, setShowLangModal] = useState(false);
   const [hasApiKey, setHasApiKey] = useState(false);
@@ -28,6 +30,10 @@ export const DashboardPage: React.FC = () => {
     setExams(getExams().sort((a, b) => b.updatedAt - a.updatedAt));
   };
 
+  const loadPassages = () => {
+    setPassages(getPassages().sort((a, b) => b.updatedAt - a.updatedAt));
+  };
+
   const checkApiKey = () => {
     const settings = getSettings();
     setHasApiKey(!!settings.geminiApiKey);
@@ -37,15 +43,18 @@ export const DashboardPage: React.FC = () => {
     loadProjects();
     loadDiaries();
     loadExams();
+    loadPassages();
     checkApiKey();
     window.addEventListener('projects-changed', loadProjects);
     window.addEventListener('diaries-changed', loadDiaries);
     window.addEventListener('exams-changed', loadExams);
+    window.addEventListener('passages-changed', loadPassages);
     window.addEventListener('settings-changed', checkApiKey);
     return () => {
       window.removeEventListener('projects-changed', loadProjects);
       window.removeEventListener('diaries-changed', loadDiaries);
       window.removeEventListener('exams-changed', loadExams);
+      window.removeEventListener('passages-changed', loadPassages);
       window.removeEventListener('settings-changed', checkApiKey);
     };
   }, []);
@@ -76,6 +85,15 @@ export const DashboardPage: React.FC = () => {
     navigate(`/exam/${newExam.id}`);
   };
 
+  const handleNewPassage = () => {
+    if (!hasApiKey) {
+      setShowApiKeyModal(true);
+      return;
+    }
+    const newPassage = createNewPassage();
+    navigate(`/passage/${newPassage.id}`);
+  };
+
   const handleSelectLanguage = (lang: StoryLanguage) => {
     setShowLangModal(false);
     const newProject = createNewProject(lang);
@@ -103,6 +121,14 @@ export const DashboardPage: React.FC = () => {
     e.stopPropagation();
     if (window.confirm('정말 이 지문설명을 삭제하시겠습니까?')) {
       deleteExam(id);
+    }
+  };
+
+  const handleDeletePassage = (e: React.MouseEvent, id: string) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (window.confirm('정말 이 지문을 삭제하시겠습니까?')) {
+      deletePassage(id);
     }
   };
 
@@ -158,6 +184,17 @@ export const DashboardPage: React.FC = () => {
           >
             <FileText size={18} />
             영어지문설명
+          </button>
+          <button
+            onClick={handleNewPassage}
+            className="flex items-center gap-2 px-5 py-2.5 rounded-xl text-sm font-semibold text-white
+              bg-gradient-to-r from-teal-500 to-emerald-500
+              hover:from-teal-400 hover:to-emerald-400
+              shadow-lg shadow-teal-500/20
+              transition-all duration-200 hover:scale-105"
+          >
+            <Newspaper size={18} />
+            하루 한 지문
           </button>
         </div>
       </div>
@@ -264,6 +301,30 @@ export const DashboardPage: React.FC = () => {
         )}
       </div>
 
+      {/* ═══ 📰 하루 한 지문 섹션 ═══ */}
+      <div className="mb-10">
+        <h3 className="text-lg font-bold text-white mb-4 flex items-center gap-2">
+          <Newspaper size={18} className="text-teal-400" />
+          하루 한 지문
+          {passages.length > 0 && <span className="text-xs font-normal text-slate-500">{passages.length}개</span>}
+        </h3>
+
+        {passages.length === 0 ? (
+          <EmptyState onNewProject={handleNewPassage} type="passage" />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            {passages.map((passage, i) => (
+              <PassageCard
+                key={passage.id}
+                passage={passage}
+                index={i}
+                onDelete={handleDeletePassage}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+
       {/* API Key Modal */}
       <ApiKeyModal isOpen={showApiKeyModal} onClose={() => setShowApiKeyModal(false)} />
 
@@ -277,7 +338,7 @@ export const DashboardPage: React.FC = () => {
   );
 };
 
-const EmptyState: React.FC<{ onNewProject: () => void; type?: 'story' | 'diary' | 'exam' }> = ({ onNewProject, type = 'story' }) => {
+const EmptyState: React.FC<{ onNewProject: () => void; type?: 'story' | 'diary' | 'exam' | 'passage' }> = ({ onNewProject, type = 'story' }) => {
   const config = {
     story: {
       icon: <Sparkles size={28} className="text-primary-400" />,
@@ -302,6 +363,14 @@ const EmptyState: React.FC<{ onNewProject: () => void; type?: 'story' | 'diary' 
       desc: '모의고사 영어 지문을 입력하면 5단계로 분석한 영상을 만들어 드려요!',
       btn: '첫 영어지문설명 만들기',
       btnBg: 'bg-gradient-to-r from-cyan-500 to-blue-500 hover:from-cyan-400 hover:to-blue-400 shadow-cyan-500/20',
+    },
+    passage: {
+      icon: <Newspaper size={28} className="text-teal-400" />,
+      bg: 'bg-gradient-to-br from-teal-500/20 to-emerald-500/20',
+      title: '아직 지문이 없습니다',
+      desc: '영어 지문을 넣으면 한글 해석 + 단어 정리 + TTS로 읽어드려요!',
+      btn: '첫 하루 한 지문 시작하기',
+      btnBg: 'bg-gradient-to-r from-teal-500 to-emerald-500 hover:from-teal-400 hover:to-emerald-400 shadow-teal-500/20',
     },
   }[type];
 
@@ -563,6 +632,84 @@ const DiaryCard: React.FC<{
           `}>
             {isGenerated ? <CheckCircle2 size={11} /> : <Clock size={11} />}
             {isGenerated ? '완료' : '작성 중'}
+          </span>
+        </div>
+      </div>
+    </Link>
+  );
+};
+
+/** 하루 한 지문 카드 */
+const PassageCard: React.FC<{
+  passage: PassageEntry;
+  index: number;
+  onDelete: (e: React.MouseEvent, id: string) => void;
+}> = ({ passage, index, onDelete }) => {
+  const isGenerated = passage.status !== 'draft';
+  const preview = passage.sentences.length > 0
+    ? passage.sentences[0].english
+    : passage.englishInput.substring(0, 80);
+
+  return (
+    <Link
+      to={`/passage/${passage.id}`}
+      className="group relative block rounded-2xl overflow-hidden bg-surface border border-white/5
+        hover:border-teal-500/30 transition-all duration-300
+        hover:shadow-xl hover:shadow-teal-500/10 hover:-translate-y-1
+        animate-fade-in-up opacity-0"
+      style={{ animationDelay: `${index * 0.05}s` }}
+    >
+      {/* Header */}
+      <div className="relative h-28 bg-gradient-to-br from-teal-900/40 to-emerald-900/40 overflow-hidden p-4 flex flex-col justify-between">
+        <div className="absolute top-2 right-2 text-4xl opacity-10">📰</div>
+
+        <p className="text-white/70 text-xs leading-relaxed line-clamp-2 mt-2 font-medium">
+          {preview || 'Empty passage...'}
+        </p>
+
+        <div className="flex items-center gap-1.5">
+          <div className="px-2 py-0.5 rounded-md bg-black/30 backdrop-blur-sm text-[10px] text-teal-300 font-medium">
+            📰 Daily Passage
+          </div>
+          {passage.sentences.length > 0 && (
+            <div className="px-2 py-0.5 rounded-md bg-black/30 backdrop-blur-sm text-[10px] text-white/70 font-medium">
+              {passage.sentences.length}문장
+            </div>
+          )}
+          {passage.vocabulary.length > 0 && (
+            <div className="px-2 py-0.5 rounded-md bg-black/30 backdrop-blur-sm text-[10px] text-white/70 font-medium">
+              {passage.vocabulary.length}단어
+            </div>
+          )}
+        </div>
+
+        <button
+          onClick={(e) => onDelete(e, passage.id)}
+          className="absolute top-3 right-3 p-1.5 rounded-lg bg-black/40 text-white/50 hover:text-red-400 hover:bg-black/60
+            opacity-0 group-hover:opacity-100 transition-all duration-200 backdrop-blur-sm"
+        >
+          <Trash2 size={13} />
+        </button>
+      </div>
+
+      <div className="p-4">
+        <h3 className="font-bold text-white text-sm truncate group-hover:text-teal-300 transition-colors">
+          {passage.title}
+        </h3>
+        <div className="flex items-center justify-between mt-2.5">
+          <span className="flex items-center gap-1.5 text-xs text-slate-500">
+            <Clock size={11} />
+            {new Date(passage.updatedAt).toLocaleDateString('ko-KR')}
+          </span>
+          <span className={`
+            flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium
+            ${isGenerated
+              ? 'bg-emerald-500/15 text-emerald-400'
+              : 'bg-teal-500/15 text-teal-400'
+            }
+          `}>
+            {isGenerated ? <CheckCircle2 size={11} /> : <Clock size={11} />}
+            {isGenerated ? '완료' : '분석 전'}
           </span>
         </div>
       </div>

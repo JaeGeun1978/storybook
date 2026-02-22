@@ -208,6 +208,85 @@ Output ONLY raw JSON (no markdown code blocks):
 };
 
 // ═══════════════════════════════════════════════════════════
+// 📰 하루 한 지문 (English → Korean Translation + Vocabulary)
+// ═══════════════════════════════════════════════════════════
+
+export const analyzePassage = async (englishText: string): Promise<DiaryGenerationResult> => {
+  const { geminiApiKey } = getSettings();
+  if (!geminiApiKey) throw new Error('Gemini API Key가 설정되지 않았습니다.');
+
+  const genAI = new GoogleGenerativeAI(geminiApiKey);
+  const model = genAI.getGenerativeModel({
+    model: MODEL_NAME,
+  }, {
+    apiVersion: 'v1beta',
+    // @ts-ignore
+    dangerouslyAllowBrowser: true,
+  });
+
+  const prompt = `
+You are an expert English teacher helping Korean students understand English passages.
+
+The user provided this English passage:
+"""
+${englishText}
+"""
+
+Your tasks:
+1. **Split** the passage into individual sentences. Keep the original English exactly as written.
+   - If a sentence is too long, keep it as one sentence.
+   - Maximum 30 sentences. If the passage is longer, summarize into 30 or fewer sentences.
+   - Provide a natural Korean translation for each sentence.
+
+2. **Extract vocabulary**: Find ALL meaningful English words, phrasal verbs, and idioms from the passage.
+   - Skip only the most basic words: a, an, the, I, is, am, are, was, were, be, to, of, in, on, at, it, my, and, or, but, so, do, did, not, no, this, that, for, with, as, by, up, he, she, we, they, his, her, our, their, its
+   - Include ALL other words with Korean meanings
+   - Include phrasal verbs (e.g., "wake up", "look forward to")
+   - Include idioms and expressions (e.g., "on cloud nine", "a piece of cake")
+   - Classify each as "word", "phrase", or "idiom"
+
+Output ONLY raw JSON (no markdown code blocks):
+{
+  "sentences": [
+    { "english": "Digital platforms have made a lot of work less sticky.", "korean": "디지털 플랫폼은 많은 일을 덜 끈끈하게 만들었다." },
+    ...
+  ],
+  "vocabulary": [
+    { "word": "platform", "meaning": "플랫폼, 기반", "type": "word" },
+    { "word": "sticky", "meaning": "끈끈한, 달라붙는", "type": "word" },
+    ...
+  ]
+}
+`;
+
+  try {
+    console.log('[Passage] 📰 지문 분석 중...');
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    const text = response.text();
+    console.log('[Passage] Gemini Raw Response:', text.substring(0, 300));
+
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace === -1 || lastBrace === -1) {
+      throw new Error('JSON 형식을 찾을 수 없습니다.');
+    }
+
+    const jsonString = text.substring(firstBrace, lastBrace + 1);
+    const parsed = JSON.parse(jsonString) as DiaryGenerationResult;
+
+    if (parsed.sentences.length > 30) {
+      parsed.sentences = parsed.sentences.slice(0, 30);
+    }
+
+    console.log(`[Passage] ✅ 완료: ${parsed.sentences.length}문장, ${parsed.vocabulary.length}단어`);
+    return parsed;
+  } catch (error) {
+    throw new Error(`지문 분석 실패: ${(error as Error).message}`);
+  }
+};
+
+// ═══════════════════════════════════════════════════════════
 // 🎭 캐릭터 시트 생성 (Character Sheet Anchoring)
 // ═══════════════════════════════════════════════════════════
 //

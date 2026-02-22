@@ -14,7 +14,7 @@ export const generateVideo = async ({
     images,
     audioBlob,
     subtitles,
-    onProgress
+    onProgress: _onProgress
 }: VideoGenParams): Promise<string> => {
 
     if (!ffmpeg.loaded) throw new Error("FFmpeg not loaded");
@@ -70,5 +70,5 @@ export const generateVideo = async ({
 
     // 5. Read Output
     const data = await ffmpeg.readFile('output.mp4');
-    return URL.createObjectURL(new Blob([data], { type: 'video/mp4' }));
+    return URL.createObjectURL(new Blob([data as BlobPart], { type: 'video/mp4' }));
 };

@@ -190,15 +190,16 @@ export const DiaryEditorPage: React.FC = () => {
         const videoCacheKey = 10000 + i; // 영상용 별도 캐시 키
         let audioBlob = audioBlobsRef.current.get(videoCacheKey);
         if (!audioBlob) {
-          audioBlob = await generateSpeech(sentence.english, 'en');
+          const textToRead = sentence.english || `Sentence ${i + 1}`;
+          audioBlob = await generateSpeech(textToRead, 'en');
           audioBlobsRef.current.set(videoCacheKey, audioBlob);
         }
 
         // 해당 문장에 포함된 단어만 찾기
-        const sentenceText = sentence.english.toLowerCase();
-        const relatedVocab = diary.vocabulary
-          .filter(v => sentenceText.includes(v.word.toLowerCase()))
-          .map(v => ({ word: v.word, meaning: v.meaning }));
+        const sentenceText = (sentence.english || '').toLowerCase();
+        const relatedVocab = (diary.vocabulary || [])
+          .filter(v => v && v.word && sentenceText.includes(v.word.toLowerCase()))
+          .map(v => ({ word: v.word, meaning: v.meaning || '' }));
 
         scenes.push({
           englishLines: [sentence.english],

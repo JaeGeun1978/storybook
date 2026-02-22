@@ -250,34 +250,15 @@ export const renderAllScenes = async ({
         ctx.fillRect(0, 0, WIDTH, HEIGHT);
         drawImageCover(ctx, scene.image, WIDTH, HEIGHT);
 
-        // ── 자막 그리기 (2줄씩, 텍스트 길이 비례 싱크) ──
+        // ── 자막 그리기 (2문장 동시 표시, 장면 전체) ──
         const chunks = scene.subtitleChunks;
         if (chunks.length > 0) {
-          const timeRatio = sceneElapsed / timeline.duration; // 0~1
-          
-          // 현재 시간에 해당하는 자막 덩어리 찾기
-          let chunkIndex = chunks.length - 1;
-          for (let ci = 0; ci < chunks.length; ci++) {
-            if (timeRatio < chunks[ci].endRatio) {
-              chunkIndex = ci;
-              break;
-            }
-          }
-
-          const chunk = chunks[chunkIndex];
-          const chunkStartTime = chunk.startRatio * timeline.duration;
-          const chunkEndTime = chunk.endRatio * timeline.duration;
-          const chunkDuration = chunkEndTime - chunkStartTime;
-          const chunkElapsed = sceneElapsed - chunkStartTime;
-
-          // 부드러운 페이드인/아웃
-          const fadeIn = Math.min(0.3, chunkDuration * 0.15);
-          const fadeOut = Math.min(0.3, chunkDuration * 0.15);
+          // 단일 청크 — 장면 시작 시 부드러운 페이드인만 적용
+          const chunk = chunks[0];
+          const fadeInDur = 0.4; // 초
           let alpha = 1;
-          if (chunkElapsed < fadeIn) {
-            alpha = chunkElapsed / fadeIn;
-          } else if (chunkDuration - chunkElapsed < fadeOut) {
-            alpha = Math.max(0, (chunkDuration - chunkElapsed) / fadeOut);
+          if (sceneElapsed < fadeInDur) {
+            alpha = sceneElapsed / fadeInDur;
           }
 
           drawSubtitle(ctx, chunk.lines, alpha);
@@ -338,18 +319,16 @@ export const renderVideo = async ({
 // ═══════════════════════════════════════════════════════════
 
 /**
- * 텍스트를 2줄씩 끊어서 자막 덩어리로 분할하고,
- * 각 덩어리에 텍스트 길이 비례 타이밍(startRatio~endRatio)을 부여.
+ * 텍스트를 단일 자막 덩어리로 만들어 장면 전체에 표시.
+ * 긴 줄은 자동 줄바꿈(40자 기준)하여 화면에 맞춤.
  * 
- * → 글자가 많은 덩어리에 더 긴 시간을 배분하여 음성-자막 싱크를 맞춤.
+ * → 한 장면에 2문장이 동시에 보이도록 처리.
  */
 function splitSubtitleIntoChunks(
   text: string
 ): { lines: string[]; charLen: number; startRatio: number; endRatio: number }[] {
-  const MAX_CHARS_PER_LINE = 28;
-  const LINES_PER_CHUNK = 2;
+  const MAX_CHARS_PER_LINE = 40; // 폰트가 작아졌으므로 한 줄에 더 많은 글자
 
-  // 1) 텍스트를 줄 단위로 분리
   const allLines: string[] = [];
   let remaining = text.trim();
 
@@ -358,9 +337,9 @@ function splitSubtitleIntoChunks(
       allLines.push(remaining);
       break;
     }
-    // 적절한 끊기 지점 찾기: 문장 부호 > 쉼표 > 공백
+
     let breakPoint = MAX_CHARS_PER_LINE;
-    
+
     // 문장 끝(.!?。) 탐색
     const sentenceEnd = remaining.substring(0, MAX_CHARS_PER_LINE + 5).search(/[.!?。]\s/);
     if (sentenceEnd > 0 && sentenceEnd <= MAX_CHARS_PER_LINE + 2) {
@@ -368,9 +347,8 @@ function splitSubtitleIntoChunks(
     } else {
       const commaIdx = remaining.lastIndexOf(',', MAX_CHARS_PER_LINE);
       const spaceIdx = remaining.lastIndexOf(' ', MAX_CHARS_PER_LINE);
-      // 한글: 조사 앞에서 끊기
       const koBreak = remaining.substring(0, MAX_CHARS_PER_LINE).search(/[을를이가은는에서도의와과로] /);
-      
+
       if (commaIdx > MAX_CHARS_PER_LINE * 0.35) {
         breakPoint = commaIdx + 1;
       } else if (koBreak > MAX_CHARS_PER_LINE * 0.35) {
@@ -384,45 +362,18 @@ function splitSubtitleIntoChunks(
     remaining = remaining.substring(breakPoint).trim();
   }
 
-  // 2) 줄들을 2줄씩 묶기
-  const rawChunks: string[][] = [];
-  for (let i = 0; i < allLines.length; i += LINES_PER_CHUNK) {
-    rawChunks.push(allLines.slice(i, i + LINES_PER_CHUNK));
+  if (allLines.length === 0) {
+    allLines.push(text.substring(0, MAX_CHARS_PER_LINE));
   }
 
-  if (rawChunks.length === 0) {
-    rawChunks.push([text.substring(0, MAX_CHARS_PER_LINE)]);
-  }
-
-  // 3) 각 덩어리의 글자 수 계산
-  const chunkCharLens = rawChunks.map(lines => 
-    lines.reduce((sum, line) => sum + line.length, 0)
-  );
-  const totalChars = chunkCharLens.reduce((a, b) => a + b, 0) || 1;
-
-  // 4) 글자 수 비례로 시간 비율 배분
-  const result: { lines: string[]; charLen: number; startRatio: number; endRatio: number }[] = [];
-  let cumulative = 0;
-
-  for (let i = 0; i < rawChunks.length; i++) {
-    const ratio = chunkCharLens[i] / totalChars;
-    const startRatio = cumulative;
-    cumulative += ratio;
-    const endRatio = cumulative;
-    result.push({
-      lines: rawChunks[i],
-      charLen: chunkCharLens[i],
-      startRatio,
-      endRatio,
-    });
-  }
-
-  // 마지막 endRatio를 정확히 1로 보정
-  if (result.length > 0) {
-    result[result.length - 1].endRatio = 1;
-  }
-
-  return result;
+  // 단일 청크로 반환 — 장면 시작~끝까지 자막이 계속 보임
+  const totalChars = allLines.reduce((sum, line) => sum + line.length, 0) || 1;
+  return [{
+    lines: allLines,
+    charLen: totalChars,
+    startRatio: 0,
+    endRatio: 1,
+  }];
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -449,36 +400,37 @@ function drawImageCover(ctx: CanvasRenderingContext2D, img: HTMLImageElement, w:
   ctx.drawImage(img, drawX, drawY, drawW, drawH);
 }
 
-/** 자막 그리기 (2줄 덩어리, 하단 중앙) */
+/** 자막 그리기 (2문장 동시 표시, 하단 중앙) */
 function drawSubtitle(ctx: CanvasRenderingContext2D, lines: string[], alpha: number) {
   if (!lines || lines.length === 0 || alpha <= 0) return;
 
   ctx.save();
 
-  // 하단 그라데이션 오버레이
-  const gradient = ctx.createLinearGradient(0, HEIGHT * 0.65, 0, HEIGHT);
+  // 하단 그라데이션 오버레이 (자막 줄 수에 따라 높이 조정)
+  const gradientStart = Math.min(0.50, 0.65 - lines.length * 0.03);
+  const gradient = ctx.createLinearGradient(0, HEIGHT * gradientStart, 0, HEIGHT);
   gradient.addColorStop(0, 'rgba(0,0,0,0)');
-  gradient.addColorStop(0.3, 'rgba(0,0,0,0.25)');
-  gradient.addColorStop(1, 'rgba(0,0,0,0.7)');
+  gradient.addColorStop(0.25, 'rgba(0,0,0,0.3)');
+  gradient.addColorStop(1, 'rgba(0,0,0,0.75)');
   ctx.fillStyle = gradient;
-  ctx.fillRect(0, HEIGHT * 0.65, WIDTH, HEIGHT * 0.35);
+  ctx.fillRect(0, HEIGHT * gradientStart, WIDTH, HEIGHT * (1 - gradientStart));
 
-  // 자막 텍스트
+  // 자막 텍스트 — 폰트 축소 (40px → 28px)
   ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-  ctx.font = 'bold 40px "Noto Sans KR", sans-serif';
+  ctx.font = 'bold 28px "Noto Sans KR", sans-serif';
   ctx.textAlign = 'center';
   ctx.textBaseline = 'bottom';
   ctx.lineJoin = 'round';
 
-  const lineHeight = 56;
-  const bottomMargin = 50;
+  const lineHeight = 40;
+  const bottomMargin = 36;
   const startY = HEIGHT - bottomMargin - (lines.length - 1) * lineHeight;
 
   lines.forEach((line, i) => {
     const y = startY + i * lineHeight;
     // 외곽선 (가독성)
     ctx.strokeStyle = 'rgba(0,0,0,0.85)';
-    ctx.lineWidth = 5;
+    ctx.lineWidth = 4;
     ctx.strokeText(line, WIDTH / 2, y);
     // 흰색 텍스트
     ctx.fillStyle = '#FFFFFF';

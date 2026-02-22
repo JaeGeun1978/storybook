@@ -49,11 +49,12 @@ export const generateStoryContent = async (topic: string, language: StoryLanguag
       Create a short English storybook based on the topic above.
       Even if the topic is in Korean, you MUST write the story entirely in English.
       Compose 3 to 5 scenes.
+      Each scene MUST have exactly 2 sentences. No more, no less.
       
       ${toneInstruction}
       
       For each scene, also include:
-      1. "vocabulary": 2~4 English words that might be difficult for Korean middle school students (ages 13-15), with Korean meanings.
+      1. "vocabulary": 2~4 English words appropriate for Korean middle school students (ages 13-15) to learn, with Korean meanings.
       2. "translation": A natural Korean translation of the English text (for line-by-line study).
       
       Output ONLY raw JSON (no markdown code blocks).

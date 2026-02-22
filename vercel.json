@@ -1,0 +1,27 @@
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": "dist",
+  "framework": "vite",
+  "rewrites": [
+    {
+      "source": "/api/gemini/:path*",
+      "destination": "https://generativelanguage.googleapis.com/:path*"
+    },
+    {
+      "source": "/api/streamelements/:path*",
+      "destination": "https://api.streamelements.com/:path*"
+    },
+    {
+      "source": "/api/tts/google/:path*",
+      "destination": "https://translate.google.com/:path*"
+    },
+    {
+      "source": "/api/tts/youdao/:path*",
+      "destination": "https://dict.youdao.com/:path*"
+    },
+    {
+      "source": "/((?!api/).*)",
+      "destination": "/index.html"
+    }
+  ]
+}

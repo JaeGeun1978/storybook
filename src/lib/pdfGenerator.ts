@@ -194,7 +194,6 @@ async function drawScenePage(doc: jsPDF, scene: SceneForPdf, index: number, _tot
   const textPadX = 10;
   const textPadY = 14;
   const innerW = cardW - textPadX * 2;
-  const innerH = cardH - textPadY * 2;
 
   // 본문 텍스트 (전체 동일 크기, dpr 보정)
   const maxWidthPx = innerW / MM_PER_PX; // mm → 논리 픽셀 (1x)

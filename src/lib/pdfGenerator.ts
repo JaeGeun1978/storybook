@@ -857,57 +857,94 @@ export const generateDiaryPdf = async ({
     (PW - coverSubW) / 2, PH * 0.35 + coverTitleH + 10, coverSubW, coverSubH);
 
   // ═══ 단어장 페이지 (표 형태: No. | Word | Meaning) ═══
+  // 제목+표를 함께 배치하기 위해 먼저 캔버스를 생성하고 높이를 계산
   {
-    doc.addPage();
-    doc.setFillColor(252, 251, 248);
-    doc.rect(0, 0, PW, PH, 'F');
-
-    const vocabTitle = renderText('Vocabulary · 단어장', {
+    const vocabTitleCanvas = renderText('Vocabulary · 단어장', {
       fontSize: 22, fontWeight: 'bold', color: '#3A3A4A',
       maxWidth: maxWpx, lineHeight: 1.3, textAlign: 'center',
     });
-    const vtW = Math.min(vocabTitle.width * PX, contentW);
-    const vtH = vocabTitle.height * PX;
-    doc.addImage(vocabTitle.toDataURL('image/png'), 'PNG', (PW - vtW) / 2, M, vtW, vtH);
+    const vtW = Math.min(vocabTitleCanvas.width * PX, contentW);
+    const vtH = vocabTitleCanvas.height * PX;
+    const tableGap = 8; // 제목과 표 사이 간격 (mm)
 
-    const tableStartY = M + vtH + 8;
-
-    // 20개 이하: 단일 표, 21개 이상: 2열 표
     const useDoubleCol = vocabulary.length > 20;
+
+    // 표 캔버스를 먼저 생성하여 높이 파악
+    let leftCanvas: HTMLCanvasElement | null = null;
+    let rightCanvas: HTMLCanvasElement | null = null;
+    let singleCanvas: HTMLCanvasElement | null = null;
+    let tableH = 0;
 
     if (useDoubleCol) {
       const half = Math.ceil(vocabulary.length / 2);
       const leftItems = vocabulary.slice(0, half);
       const rightItems = vocabulary.slice(half);
-      const colW = (contentW - 6) / 2; // 6mm gap
+      const colW = (contentW - 6) / 2;
       const colWpx = colW / MM_PER_PX;
 
-      const leftCanvas = renderDiaryVocabTable(leftItems, 1, colWpx);
-      const rightCanvas = renderDiaryVocabTable(rightItems, half + 1, colWpx);
-
-      const leftH = leftCanvas.height * PX;
-      const rightH = rightCanvas.height * PX;
-      const leftW = leftCanvas.width * PX;
-      const rightW = rightCanvas.width * PX;
-
-      // 높이 초과 시 페이지 나누기 (2열이면 보통 한 페이지에 충분)
-      let vy = tableStartY;
-      if (vy + Math.max(leftH, rightH) > PH - M) {
-        doc.addPage();
-        doc.setFillColor(252, 251, 248);
-        doc.rect(0, 0, PW, PH, 'F');
-        vy = M;
-      }
-      doc.addImage(leftCanvas.toDataURL('image/png'), 'PNG', M, vy, leftW, leftH);
-      doc.addImage(rightCanvas.toDataURL('image/png'), 'PNG', M + colW + 6, vy, rightW, rightH);
+      leftCanvas = renderDiaryVocabTable(leftItems, 1, colWpx);
+      rightCanvas = renderDiaryVocabTable(rightItems, half + 1, colWpx);
+      tableH = Math.max(leftCanvas.height * PX, rightCanvas.height * PX);
     } else {
-      // 단일 표 (중앙 정렬)
       const tableWpx = Math.min(maxWpx, 550);
-      const tableCanvas = renderDiaryVocabTable(vocabulary, 1, tableWpx);
-      const tW = tableCanvas.width * PX;
-      const tH = tableCanvas.height * PX;
-      doc.addImage(tableCanvas.toDataURL('image/png'), 'PNG',
-        (PW - tW) / 2, tableStartY, tW, tH);
+      singleCanvas = renderDiaryVocabTable(vocabulary, 1, tableWpx);
+      tableH = singleCanvas.height * PX;
+    }
+
+    // 새 페이지 생성 헬퍼
+    const newVocabPage = () => {
+      doc.addPage();
+      doc.setFillColor(252, 251, 248);
+      doc.rect(0, 0, PW, PH, 'F');
+    };
+
+    const totalNeeded = vtH + tableGap + tableH;
+
+    // 제목+표가 한 페이지에 들어가는지 확인
+    if (totalNeeded <= PH - M * 2) {
+      // ✅ 한 페이지에 제목+표 모두 배치
+      newVocabPage();
+      doc.addImage(vocabTitleCanvas.toDataURL('image/png'), 'PNG', (PW - vtW) / 2, M, vtW, vtH);
+      const vy = M + vtH + tableGap;
+
+      if (useDoubleCol && leftCanvas && rightCanvas) {
+        const colW = (contentW - 6) / 2;
+        doc.addImage(leftCanvas.toDataURL('image/png'), 'PNG', M, vy, leftCanvas.width * PX, leftCanvas.height * PX);
+        doc.addImage(rightCanvas.toDataURL('image/png'), 'PNG', M + colW + 6, vy, rightCanvas.width * PX, rightCanvas.height * PX);
+      } else if (singleCanvas) {
+        const tW = singleCanvas.width * PX;
+        doc.addImage(singleCanvas.toDataURL('image/png'), 'PNG', (PW - tW) / 2, vy, tW, singleCanvas.height * PX);
+      }
+    } else {
+      // ⚠️ 한 페이지에 안 들어감 → 제목 페이지 + 표 페이지 분리
+      // 제목만 있는 페이지보다는 제목+표를 같은 페이지 상단부터 배치
+      newVocabPage();
+      doc.addImage(vocabTitleCanvas.toDataURL('image/png'), 'PNG', (PW - vtW) / 2, M, vtW, vtH);
+      let vy = M + vtH + tableGap;
+
+      if (useDoubleCol && leftCanvas && rightCanvas) {
+        const colW = (contentW - 6) / 2;
+        const lH = leftCanvas.height * PX;
+        const rH = rightCanvas.height * PX;
+        // 표가 현재 페이지 하단을 넘으면 새 페이지에 제목+표 함께 배치
+        if (vy + Math.max(lH, rH) > PH - M) {
+          newVocabPage();
+          // 새 페이지에 제목 다시 배치
+          doc.addImage(vocabTitleCanvas.toDataURL('image/png'), 'PNG', (PW - vtW) / 2, M, vtW, vtH);
+          vy = M + vtH + tableGap;
+        }
+        doc.addImage(leftCanvas.toDataURL('image/png'), 'PNG', M, vy, leftCanvas.width * PX, lH);
+        doc.addImage(rightCanvas.toDataURL('image/png'), 'PNG', M + colW + 6, vy, rightCanvas.width * PX, rH);
+      } else if (singleCanvas) {
+        const tW = singleCanvas.width * PX;
+        const tH = singleCanvas.height * PX;
+        if (vy + tH > PH - M) {
+          newVocabPage();
+          doc.addImage(vocabTitleCanvas.toDataURL('image/png'), 'PNG', (PW - vtW) / 2, M, vtW, vtH);
+          vy = M + vtH + tableGap;
+        }
+        doc.addImage(singleCanvas.toDataURL('image/png'), 'PNG', (PW - tW) / 2, vy, tW, tH);
+      }
     }
   }
 

@@ -137,7 +137,7 @@ export function ExamReviewPage() {
 
   if (total === 0) {
     return (
-      <div className="flex items-center justify-center h-[calc(100vh-4rem)] bg-gray-50 -m-4 lg:-m-8">
+      <div className="flex items-center justify-center h-screen bg-gray-50">
         <div className="text-center">
           <p className="text-xl text-gray-500 mb-4">검수할 문제가 없습니다</p>
           <button
@@ -152,7 +152,7 @@ export function ExamReviewPage() {
   }
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] bg-gray-50 -m-4 lg:-m-8">
+    <div className="flex flex-col h-screen bg-gray-50">
       {/* 상단 바 */}
       <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-200 flex-shrink-0">
         <div className="flex items-center gap-4">

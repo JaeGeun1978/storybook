@@ -242,7 +242,7 @@ export function ExamOcrPage() {
   void questionsToExportJson;
 
   return (
-    <div className="flex flex-col h-[calc(100vh-4rem)] bg-gray-50 -m-4 lg:-m-8 rounded-xl overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh)] bg-gray-50 overflow-hidden">
       {/* 도구바 */}
       <OcrToolbar
         selectionMode={selectionMode}

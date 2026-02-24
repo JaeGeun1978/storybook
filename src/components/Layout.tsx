@@ -11,6 +11,9 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
     return location.pathname.startsWith(path);
   };
 
+  // 기출OCR/검수 페이지는 전체 폭 사용
+  const isFullWidth = location.pathname.startsWith('/exam-ocr') || location.pathname.startsWith('/exam-review');
+
   return (
     <div className="flex min-h-screen bg-dark text-white">
       {/* Mobile Overlay */}
@@ -93,8 +96,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
         </header>
 
         {/* Page Content */}
-        <main className="flex-1 p-4 lg:p-8 overflow-y-auto">
-          <div className="max-w-7xl mx-auto">
+        <main className={`flex-1 overflow-y-auto ${isFullWidth ? 'p-0' : 'p-4 lg:p-8'}`}>
+          <div className={isFullWidth ? '' : 'max-w-7xl mx-auto'}>
             {children}
           </div>
         </main>

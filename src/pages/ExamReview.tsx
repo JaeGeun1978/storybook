@@ -11,10 +11,27 @@ const CIRCLE_KOREAN = ['㉠', '㉡', '㉢', '㉣', '㉤'];
 
 export function ExamReviewPage() {
   const navigate = useNavigate();
-  const questions = useQuestionStore((s) => s.questions);
-  const updateQuestion = useQuestionStore((s) => s.updateQuestion);
-  const deleteQuestion = useQuestionStore((s) => s.deleteQuestion);
-  const markSaved = useQuestionStore((s) => s.markSaved);
+
+  // ★ 수동 구독: useSyncExternalStore 우회 (React 19 + Zustand 5 호환)
+  const [questions, setLocalQuestions] = useState(() => useQuestionStore.getState().questions);
+  useEffect(() => {
+    setLocalQuestions(useQuestionStore.getState().questions);
+    return useQuestionStore.subscribe((state) => {
+      setLocalQuestions(state.questions);
+    });
+  }, []);
+
+  const updateQuestion = useCallback(
+    (index: number, updates: Partial<import('../lib/exam-ocr/types.ts').Question>) =>
+      useQuestionStore.getState().updateQuestion(index, updates), []
+  );
+  const deleteQuestion = useCallback(
+    (index: number) => useQuestionStore.getState().deleteQuestion(index), []
+  );
+  const markSaved = useCallback(
+    () => useQuestionStore.getState().markSaved(), []
+  );
+
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoadingAnswer, setIsLoadingAnswer] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -140,7 +157,7 @@ export function ExamReviewPage() {
 
   if (total === 0) {
     return (
-      <div className="flex items-center justify-center h-screen bg-gray-50">
+      <div className="flex items-center justify-center h-screen bg-gray-50 text-gray-900">
         <div className="text-center">
           <p className="text-xl text-gray-500 mb-4">검수할 문제가 없습니다</p>
           <button
@@ -155,7 +172,7 @@ export function ExamReviewPage() {
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
+    <div className="flex flex-col h-screen bg-gray-50 text-gray-900">
       {/* 상단 바 */}
       <div className="flex items-center justify-between px-6 py-3 bg-white border-b border-gray-200 flex-shrink-0">
         <div className="flex items-center gap-4">

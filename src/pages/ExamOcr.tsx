@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import ImageDropZone from '../components/exam-ocr/ImageDropZone.tsx';
 import PdfViewer from '../components/exam-ocr/PdfViewer.tsx';
@@ -14,7 +14,7 @@ import { questionsToExportJson } from '../lib/exam-ocr/questionParser.ts';
 import { normalizeQuestionText } from '../lib/exam-ocr/normalizeQuestion.ts';
 import { ocrExtract, analyzeExam } from '../lib/exam-ocr/ocrApi.ts';
 import { exportQuestionsPdf } from '../lib/exam-ocr/exportPdf.ts';
-import type { SelectionMode, Region, QueuedImage } from '../lib/exam-ocr/types.ts';
+import type { SelectionMode, Region, QueuedImage, Question } from '../lib/exam-ocr/types.ts';
 
 export function ExamOcrPage() {
   const navigate = useNavigate();
@@ -29,13 +29,48 @@ export function ExamOcrPage() {
   const [analysisExamName, setAnalysisExamName] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  const questions = useQuestionStore((s) => s.questions);
-  const addQuestion = useQuestionStore((s) => s.addQuestion);
-  const addPlaceholders = useQuestionStore((s) => s.addPlaceholders);
-  const updateQuestion = useQuestionStore((s) => s.updateQuestion);
-  const setQuestions = useQuestionStore((s) => s.setQuestions);
-  const mergeQuestions = useQuestionStore((s) => s.mergeQuestions);
-  const markSaved = useQuestionStore((s) => s.markSaved);
+  // ★ 수동 구독: useSyncExternalStore 우회 (React 19 + Zustand 5 호환 문제 해결)
+  const [questions, setLocalQuestions] = useState<Question[]>(() => useQuestionStore.getState().questions);
+  const questionsRef = useRef(questions);
+
+  useEffect(() => {
+    // 마운트 시 최신 상태 동기화
+    const current = useQuestionStore.getState().questions;
+    setLocalQuestions(current);
+    questionsRef.current = current;
+
+    const unsub = useQuestionStore.subscribe((state) => {
+      // 참조가 실제로 바뀌었을 때만 setState 호출
+      if (state.questions !== questionsRef.current) {
+        console.log('[ExamOcr] 스토어 구독 → questions 변경 감지, 길이:', state.questions.length);
+        questionsRef.current = state.questions;
+        setLocalQuestions(state.questions);
+      }
+    });
+    return unsub;
+  }, []);
+
+  // 스토어 액션은 getState()로 직접 접근 (안정적인 참조)
+  const addQuestion = useCallback(
+    (q: Omit<Question, 'number'>) => useQuestionStore.getState().addQuestion(q), []
+  );
+  const addPlaceholders = useCallback(
+    (count: number) => useQuestionStore.getState().addPlaceholders(count), []
+  );
+  const updateQuestion = useCallback(
+    (index: number, updates: Partial<Question>) => useQuestionStore.getState().updateQuestion(index, updates), []
+  );
+  const setQuestions = useCallback(
+    (qs: Question[]) => useQuestionStore.getState().setQuestions(qs), []
+  );
+  const mergeQuestions = useCallback(
+    (qs: Question[]) => useQuestionStore.getState().mergeQuestions(qs), []
+  );
+  const markSaved = useCallback(
+    () => useQuestionStore.getState().markSaved(), []
+  );
+
+  console.log('[ExamOcr RENDER] questions:', questions.length);
 
   // 이미지 큐 전송 → 이미지별 개별 OCR 병렬 처리
   const handleSubmitImages = useCallback(async () => {
@@ -324,7 +359,7 @@ export function ExamOcrPage() {
   void questionsToExportJson;
 
   return (
-    <div className="flex flex-col h-[calc(100vh)] bg-gray-50 overflow-hidden">
+    <div className="flex flex-col h-[calc(100vh)] bg-gray-50 text-gray-900 overflow-hidden">
       {/* 도구바 */}
       <OcrToolbar
         selectionMode={selectionMode}
@@ -396,7 +431,7 @@ export function ExamOcrPage() {
             </button>
           </div>
           <div className="flex-1 overflow-y-auto p-4">
-            <QuestionCardList />
+            <QuestionCardList questions={questions} />
           </div>
         </div>
       </div>

@@ -1,6 +1,6 @@
 import { useQuestionStore } from '../../lib/exam-ocr/useQuestionStore.ts';
 import QuestionCard from './QuestionCard.tsx';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { mergeAnswerIntoText, parseBatchAnswerResponse } from '../../lib/exam-ocr/answerMerge.ts';
 import { getAnswer, getBatchAnswer } from '../../lib/exam-ocr/ocrApi.ts';
 import {
@@ -17,27 +17,31 @@ import {
   sortableKeyboardCoordinates,
   verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
+import type { Question } from '../../lib/exam-ocr/types.ts';
 
-export default function QuestionCardList() {
-  // Manual subscription: bypasses useSyncExternalStore to fix
-  // React 19 + Zustand v5 + StrictMode re-render issue
-  const [questions, setQuestions] = useState(() => useQuestionStore.getState().questions);
-  useEffect(() => {
-    setQuestions(useQuestionStore.getState().questions);
-    return useQuestionStore.subscribe((state) => {
-      setQuestions(state.questions);
-    });
-  }, []);
+interface QuestionCardListProps {
+  questions: Question[];
+}
 
-  const updateQuestion = useQuestionStore.getState().updateQuestion;
-  const deleteQuestion = useQuestionStore.getState().deleteQuestion;
-  const deleteAllQuestions = useQuestionStore.getState().deleteAllQuestions;
-  const reorderQuestions = useQuestionStore.getState().reorderQuestions;
+export default function QuestionCardList({ questions }: QuestionCardListProps) {
+  // 액션은 getState()로 직접 접근 (안정적 참조, 구독 불필요)
+  const updateQuestion = useCallback(
+    (index: number, updates: Partial<Question>) => useQuestionStore.getState().updateQuestion(index, updates), []
+  );
+  const deleteQuestion = useCallback(
+    (index: number) => useQuestionStore.getState().deleteQuestion(index), []
+  );
+  const deleteAllQuestions = useCallback(
+    () => useQuestionStore.getState().deleteAllQuestions(), []
+  );
+  const reorderQuestions = useCallback(
+    (from: number, to: number) => useQuestionStore.getState().reorderQuestions(from, to), []
+  );
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
+
+  console.log('[QuestionCardList RENDER] questions:', questions.length);
   const [isBatchLoading, setIsBatchLoading] = useState(false);
   const [loadingAnswerIndices, setLoadingAnswerIndices] = useState<Set<number>>(new Set());
-
-  console.log('[CardList] 렌더링, questions:', questions.length);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),

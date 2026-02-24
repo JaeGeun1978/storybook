@@ -1,5 +1,4 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
 import type { Question, UploadedImage } from './types.ts';
 import { normalizeQuestionText } from './normalizeQuestion.ts';
 
@@ -20,9 +19,9 @@ interface QuestionStore {
   markSaved: () => void;
 }
 
+// persist 없이 순수 Zustand 스토어 (React 19 + Zustand 5 호환 문제 해결)
 export const useQuestionStore = create<QuestionStore>()(
-  persist(
-    (set, get) => ({
+  (set, get) => ({
       questions: [],
       currentImage: null,
       hasUnsavedChanges: false,
@@ -107,10 +106,34 @@ export const useQuestionStore = create<QuestionStore>()(
       },
 
       markSaved: () => set({ hasUnsavedChanges: false }),
-    }),
-    {
-      name: 'exam-questions-storage',
-      partialize: (state) => ({ questions: state.questions }),
-    }
-  )
+    })
 );
+
+// localStorage 수동 persist (persist 미들웨어 대체)
+const STORAGE_KEY = 'exam-questions-storage';
+
+// 하이드레이션: 앱 시작 시 localStorage에서 복원
+try {
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored) {
+    const parsed = JSON.parse(stored);
+    if (parsed?.state?.questions?.length > 0) {
+      useQuestionStore.setState({ questions: parsed.state.questions });
+      console.log('[Store] localStorage에서 복원:', parsed.state.questions.length, '개');
+    }
+  }
+} catch (e) {
+  console.warn('[Store] localStorage 복원 실패:', e);
+}
+
+// 상태 변경 시 localStorage에 저장
+useQuestionStore.subscribe((state) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ state: { questions: state.questions } }));
+  } catch (e) {
+    console.warn('[Store] localStorage 저장 실패:', e);
+  }
+});
+
+// 디버깅용: 브라우저 콘솔에서 __store.getState().questions 으로 확인 가능
+(window as unknown as Record<string, unknown>).__store = useQuestionStore;

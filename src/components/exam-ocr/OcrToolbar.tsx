@@ -8,6 +8,7 @@ interface OcrToolbarProps {
   onAnalyzeExam: () => void;
   onImportJson: () => void;
   onExportJson: () => void;
+  onExportPdf: () => void;
   isProcessing: boolean;
 }
 
@@ -19,6 +20,7 @@ export default function OcrToolbar({
   onAnalyzeExam,
   onImportJson,
   onExportJson,
+  onExportPdf,
   isProcessing,
 }: OcrToolbarProps) {
   const modeButton = (mode: SelectionMode, label: string) => {
@@ -90,6 +92,12 @@ export default function OcrToolbar({
           className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
         >
           JSON 저장
+        </button>
+        <button
+          onClick={onExportPdf}
+          className="px-3 py-1.5 text-sm bg-rose-600 text-white rounded-lg hover:bg-rose-700"
+        >
+          📄 PDF 내보내기
         </button>
       </div>
     </div>

@@ -13,6 +13,7 @@ import { downloadJson, loadJsonFile } from '../lib/exam-ocr/exportJson.ts';
 import { questionsToExportJson } from '../lib/exam-ocr/questionParser.ts';
 import { normalizeQuestionText } from '../lib/exam-ocr/normalizeQuestion.ts';
 import { ocrExtract, analyzeExam } from '../lib/exam-ocr/ocrApi.ts';
+import { exportQuestionsPdf } from '../lib/exam-ocr/exportPdf.ts';
 import type { SelectionMode, Region, QueuedImage } from '../lib/exam-ocr/types.ts';
 
 export function ExamOcrPage() {
@@ -226,6 +227,17 @@ export function ExamOcrPage() {
     input.click();
   }, []);
 
+  // PDF 내보내기
+  const handleExportPdf = useCallback(() => {
+    if (questions.length === 0) {
+      alert('내보낼 문제가 없습니다.');
+      return;
+    }
+    const title = prompt('시험지 제목을 입력하세요:', '기출문제 정리');
+    if (title === null) return;
+    exportQuestionsPdf(questions, title || undefined);
+  }, [questions]);
+
   // questionsToExportJson 사용 안 됨 경고 방지
   void questionsToExportJson;
 
@@ -240,6 +252,7 @@ export function ExamOcrPage() {
         onAnalyzeExam={handleAnalyzeExam}
         onImportJson={handleImportJson}
         onExportJson={handleExportJson}
+        onExportPdf={handleExportPdf}
         isProcessing={isProcessing}
       />
 

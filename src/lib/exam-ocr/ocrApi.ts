@@ -15,6 +15,19 @@ import {
 
 const MODEL = 'gemini-2.0-flash';
 
+/**
+ * Gemini 응답에서 마크다운 코드 블록 및 불필요한 래핑 제거
+ */
+function cleanGeminiResponse(text: string): string {
+  let cleaned = text;
+  // 마크다운 코드 블록 제거 (```json ... ``` 또는 ``` ... ```)
+  const codeBlockMatch = cleaned.match(/```(?:\w*)\s*\n?([\s\S]*?)\n?\s*```/);
+  if (codeBlockMatch) {
+    cleaned = codeBlockMatch[1];
+  }
+  return cleaned.trim();
+}
+
 function getClient(): GoogleGenerativeAI {
   const key = getSettings().geminiApiKey;
   if (!key) throw new Error('Gemini API 키가 설정되지 않았습니다. 설정에서 API 키를 입력해주세요.');
@@ -77,7 +90,7 @@ export async function ocrExtract(
         }
       }
 
-      return text;
+      return cleanGeminiResponse(text);
     } catch (error) {
       if (attempt >= maxRetries) throw error;
     }
@@ -93,7 +106,7 @@ export async function getAnswer(text: string): Promise<string> {
   const ai = getClient();
   const model = ai.getGenerativeModel({ model: MODEL });
   const result = await model.generateContent(ANSWER_EXPLANATION_PROMPT(text));
-  return result.response.text();
+  return cleanGeminiResponse(result.response.text());
 }
 
 /**
@@ -103,7 +116,7 @@ export async function getBatchAnswer(texts: string[]): Promise<string> {
   const ai = getClient();
   const model = ai.getGenerativeModel({ model: MODEL });
   const result = await model.generateContent(BATCH_ANSWER_PROMPT(texts));
-  return result.response.text();
+  return cleanGeminiResponse(result.response.text());
 }
 
 /**

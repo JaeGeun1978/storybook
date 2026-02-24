@@ -47,10 +47,43 @@ export function ExamOcrPage() {
 
       return ocrExtract([base64], 'extract')
         .then((text) => {
-          updateQuestion(startIndex + i, {
-            text: normalizeQuestionText(text),
-            isLoading: false,
-          });
+          // 여러 [문제]가 포함된 경우 분리
+          const questionParts = text.split(/(?=\[문제\])/).filter((p: string) => p.trim());
+
+          if (questionParts.length > 1) {
+            let preamble = '';
+            let questions = questionParts;
+            if (!questionParts[0].startsWith('[문제]')) {
+              preamble = questionParts[0].trim();
+              questions = questionParts.slice(1);
+            }
+
+            // 첫 번째 문제는 플레이스홀더 업데이트
+            const firstText = preamble
+              ? preamble + '\n\n' + questions[0].trim()
+              : questions[0].trim();
+            updateQuestion(startIndex + i, {
+              text: normalizeQuestionText(firstText),
+              isLoading: false,
+            });
+
+            // 나머지 문제는 새 카드로 추가
+            for (let j = 1; j < questions.length; j++) {
+              const fullText = preamble
+                ? preamble + '\n\n' + questions[j].trim()
+                : questions[j].trim();
+              addQuestion({
+                text: fullText,
+                answer: '',
+                explanation: '',
+              });
+            }
+          } else {
+            updateQuestion(startIndex + i, {
+              text: normalizeQuestionText(text),
+              isLoading: false,
+            });
+          }
         })
         .catch(() => {
           updateQuestion(startIndex + i, {
@@ -117,17 +150,42 @@ export function ExamOcrPage() {
         const text = await ocrExtract(images, mode);
 
         if (text) {
-          addQuestion({
-            text: text,
-            answer: '',
-            explanation: '',
-            region: [
-              Math.round(regions[0].x),
-              Math.round(regions[0].y),
-              Math.round(regions[0].x + regions[0].width),
-              Math.round(regions[0].y + regions[0].height),
-            ],
-          });
+          const regionCoords: [number, number, number, number] = [
+            Math.round(regions[0].x),
+            Math.round(regions[0].y),
+            Math.round(regions[0].x + regions[0].width),
+            Math.round(regions[0].y + regions[0].height),
+          ];
+
+          // 여러 [문제]가 포함된 경우 개별 카드로 분리
+          const questionParts = text.split(/(?=\[문제\])/).filter((p: string) => p.trim());
+
+          if (questionParts.length > 1) {
+            // [문제]로 시작하지 않는 앞부분은 지문(공통 텍스트)
+            let preamble = '';
+            let questions = questionParts;
+            if (!questionParts[0].startsWith('[문제]')) {
+              preamble = questionParts[0].trim();
+              questions = questionParts.slice(1);
+            }
+
+            for (const q of questions) {
+              const fullText = preamble ? preamble + '\n\n' + q.trim() : q.trim();
+              addQuestion({
+                text: fullText,
+                answer: '',
+                explanation: '',
+                region: regionCoords,
+              });
+            }
+          } else {
+            addQuestion({
+              text: text,
+              answer: '',
+              explanation: '',
+              region: regionCoords,
+            });
+          }
         }
       } catch (error) {
         console.error('OCR 처리 실패:', error);

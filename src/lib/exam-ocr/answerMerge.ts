@@ -35,16 +35,33 @@ export function mergeAnswerIntoText(
     return gptResponse.trim();
   }
 
+  // 기존 정답/해설 제거 함수
+  const removeExistingAnswer = (text: string) =>
+    text.replace(/\n*\[정답\][\s\S]*$/, '').replace(/\n*정답[\s:：][\s\S]*$/m, '').trimEnd();
+
+  // [정답] 태그로 시작하는 부분 매칭
   const answerMatch = gptResponse.match(/\[정답\][\s\S]*/);
   if (answerMatch) {
-    const cleanedOriginal = originalText
-      .replace(/\n*\[정답\][\s\S]*$/, '')
-      .trimEnd();
-    return cleanedOriginal + '\n\n' + answerMatch[0].trim();
+    return removeExistingAnswer(originalText) + '\n\n' + answerMatch[0].trim();
   }
 
-  const cleanedOriginal = originalText
-    .replace(/\n*\[정답\][\s\S]*$/, '')
-    .trimEnd();
+  // "정답:" 또는 "정답 :" 형식 매칭 (Gemini가 태그 없이 응답하는 경우)
+  const altAnswerMatch = gptResponse.match(/(?:^|\n)\s*(정답[\s:：][\s\S]*)/m);
+  if (altAnswerMatch) {
+    const answerPart = altAnswerMatch[1].trim();
+    return removeExistingAnswer(originalText) + '\n\n[정답] ' + answerPart.replace(/^정답[\s:：]\s*/, '');
+  }
+
+  // 응답에 [문제] 태그가 있으면 원본과 중복 → 정답/해설만 추출 시도
+  if (responseQuestionCount >= 1) {
+    // 응답에서 원본 문제 텍스트를 제거하고 나머지(정답/해설)만 추출
+    const afterLastQuestion = gptResponse.replace(/[\s\S]*\[문제\][^\[]*/, '');
+    if (afterLastQuestion.trim()) {
+      return removeExistingAnswer(originalText) + '\n\n' + afterLastQuestion.trim();
+    }
+  }
+
+  // 어떤 패턴도 매칭 안 되면 응답 전체를 추가 (중복 방지를 위해 원본과 다를 때만)
+  const cleanedOriginal = removeExistingAnswer(originalText);
   return cleanedOriginal + '\n\n' + gptResponse.trim();
 }

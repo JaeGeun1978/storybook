@@ -14,6 +14,7 @@ import { questionsToExportJson } from '../lib/exam-ocr/questionParser.ts';
 import { normalizeQuestionText } from '../lib/exam-ocr/normalizeQuestion.ts';
 import { ocrExtract, analyzeExam } from '../lib/exam-ocr/ocrApi.ts';
 import { exportQuestionsPdf } from '../lib/exam-ocr/exportPdf.ts';
+import { exportQuestionsHwpx } from '../lib/exam-ocr/exportHwpx.ts';
 import type { SelectionMode, Region, QueuedImage, Question } from '../lib/exam-ocr/types.ts';
 
 export function ExamOcrPage() {
@@ -355,6 +356,28 @@ export function ExamOcrPage() {
     exportQuestionsPdf(questions, title || undefined);
   }, [questions]);
 
+  // HWP(HWPX) 내보내기
+  const [isHwpxExporting, setIsHwpxExporting] = useState(false);
+  const handleExportHwpx = useCallback(async () => {
+    if (questions.length === 0) {
+      alert('내보낼 문제가 없습니다.');
+      return;
+    }
+    const title = prompt('시험지 제목을 입력하세요:', '기출문제 정리');
+    if (title === null) return;
+
+    setIsHwpxExporting(true);
+    try {
+      await exportQuestionsHwpx(questions, title || undefined, (status) => {
+        console.log('[HWP 내보내기]', status);
+      });
+    } catch (error) {
+      console.error('[HWP 내보내기 실패]', error);
+    } finally {
+      setIsHwpxExporting(false);
+    }
+  }, [questions]);
+
   // questionsToExportJson 사용 안 됨 경고 방지
   void questionsToExportJson;
 
@@ -370,6 +393,8 @@ export function ExamOcrPage() {
         onImportJson={handleImportJson}
         onExportJson={handleExportJson}
         onExportPdf={handleExportPdf}
+        onExportHwpx={handleExportHwpx}
+        isHwpxExporting={isHwpxExporting}
         isProcessing={isProcessing}
       />
 

@@ -9,6 +9,8 @@ interface OcrToolbarProps {
   onImportJson: () => void;
   onExportJson: () => void;
   onExportPdf: () => void;
+  onExportHwpx: () => void;
+  isHwpxExporting: boolean;
   isProcessing: boolean;
 }
 
@@ -21,6 +23,8 @@ export default function OcrToolbar({
   onImportJson,
   onExportJson,
   onExportPdf,
+  onExportHwpx,
+  isHwpxExporting,
   isProcessing,
 }: OcrToolbarProps) {
   const modeButton = (mode: SelectionMode, label: string) => {
@@ -98,6 +102,13 @@ export default function OcrToolbar({
           className="px-3 py-1.5 text-sm bg-rose-600 text-white rounded-lg hover:bg-rose-700"
         >
           📄 PDF 내보내기
+        </button>
+        <button
+          onClick={onExportHwpx}
+          disabled={isHwpxExporting}
+          className="px-3 py-1.5 text-sm bg-teal-600 text-white rounded-lg hover:bg-teal-700 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isHwpxExporting ? '변환중...' : '📝 HWP 내보내기'}
         </button>
       </div>
     </div>

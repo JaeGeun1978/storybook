@@ -24,3 +24,9 @@ dist-ssr
 *.sw?
 
 .vercel
+
+# Firebase Functions
+functions/venv/
+functions/__pycache__/
+functions/*.pyc
+functions/test_*.py

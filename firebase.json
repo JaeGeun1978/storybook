@@ -1,0 +1,15 @@
+{
+  "functions": [
+    {
+      "source": "functions",
+      "codebase": "hwpx-converter",
+      "runtime": "python312",
+      "ignore": [
+        "__pycache__",
+        "*.pyc",
+        "test_*.py",
+        "venv"
+      ]
+    }
+  ]
+}

@@ -29,8 +29,13 @@ export function ExamOcrPage() {
   const [analysisExamName, setAnalysisExamName] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
 
-  const { questions, addQuestion, addPlaceholders, updateQuestion, setQuestions, mergeQuestions, markSaved } =
-    useQuestionStore();
+  const questions = useQuestionStore((s) => s.questions);
+  const addQuestion = useQuestionStore((s) => s.addQuestion);
+  const addPlaceholders = useQuestionStore((s) => s.addPlaceholders);
+  const updateQuestion = useQuestionStore((s) => s.updateQuestion);
+  const setQuestions = useQuestionStore((s) => s.setQuestions);
+  const mergeQuestions = useQuestionStore((s) => s.mergeQuestions);
+  const markSaved = useQuestionStore((s) => s.markSaved);
 
   // 이미지 큐 전송 → 이미지별 개별 OCR 병렬 처리
   const handleSubmitImages = useCallback(async () => {

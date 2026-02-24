@@ -11,7 +11,10 @@ const CIRCLE_KOREAN = ['㉠', '㉡', '㉢', '㉣', '㉤'];
 
 export function ExamReviewPage() {
   const navigate = useNavigate();
-  const { questions, updateQuestion, deleteQuestion, markSaved } = useQuestionStore();
+  const questions = useQuestionStore((s) => s.questions);
+  const updateQuestion = useQuestionStore((s) => s.updateQuestion);
+  const deleteQuestion = useQuestionStore((s) => s.deleteQuestion);
+  const markSaved = useQuestionStore((s) => s.markSaved);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isLoadingAnswer, setIsLoadingAnswer] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);

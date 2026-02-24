@@ -1,6 +1,6 @@
 import { useQuestionStore } from '../../lib/exam-ocr/useQuestionStore.ts';
 import QuestionCard from './QuestionCard.tsx';
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { mergeAnswerIntoText, parseBatchAnswerResponse } from '../../lib/exam-ocr/answerMerge.ts';
 import { getAnswer, getBatchAnswer } from '../../lib/exam-ocr/ocrApi.ts';
 import {
@@ -19,11 +19,25 @@ import {
 } from '@dnd-kit/sortable';
 
 export default function QuestionCardList() {
-  const { questions, updateQuestion, deleteQuestion, deleteAllQuestions, reorderQuestions } =
-    useQuestionStore();
+  // Manual subscription: bypasses useSyncExternalStore to fix
+  // React 19 + Zustand v5 + StrictMode re-render issue
+  const [questions, setQuestions] = useState(() => useQuestionStore.getState().questions);
+  useEffect(() => {
+    setQuestions(useQuestionStore.getState().questions);
+    return useQuestionStore.subscribe((state) => {
+      setQuestions(state.questions);
+    });
+  }, []);
+
+  const updateQuestion = useQuestionStore.getState().updateQuestion;
+  const deleteQuestion = useQuestionStore.getState().deleteQuestion;
+  const deleteAllQuestions = useQuestionStore.getState().deleteAllQuestions;
+  const reorderQuestions = useQuestionStore.getState().reorderQuestions;
   const [selectedIndices, setSelectedIndices] = useState<Set<number>>(new Set());
   const [isBatchLoading, setIsBatchLoading] = useState(false);
   const [loadingAnswerIndices, setLoadingAnswerIndices] = useState<Set<number>>(new Set());
+
+  console.log('[CardList] 렌더링, questions:', questions.length);
 
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),

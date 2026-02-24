@@ -38,7 +38,9 @@ export const useQuestionStore = create<QuestionStore>()(
           saved_at: new Date().toISOString(),
         };
         console.log('[Store] addQuestion - 새 문제 추가, #' + newQuestion.number, '텍스트 길이:', newQuestion.text.length);
-        set({ questions: [...questions, newQuestion], hasUnsavedChanges: true });
+        const newQuestions = [...questions, newQuestion];
+        set({ questions: newQuestions, hasUnsavedChanges: true });
+        console.log('[Store] addQuestion 후 확인 - get().questions.length:', get().questions.length);
       },
 
       addPlaceholders: (count: number) => {

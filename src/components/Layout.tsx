@@ -1,18 +1,12 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Settings, BookOpen, Menu, X, ScanSearch } from 'lucide-react';
+import { LayoutDashboard, Settings, BookOpen, Menu, X } from 'lucide-react';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  const isActive = (path: string) => {
-    if (path === '/') return location.pathname === '/';
-    return location.pathname.startsWith(path);
-  };
-
-  // 기출OCR/검수 페이지는 전체 폭 사용
-  const isFullWidth = location.pathname.startsWith('/exam-ocr') || location.pathname.startsWith('/exam-review');
+  const isActive = (path: string) => location.pathname === path;
 
   return (
     <div className="flex min-h-screen bg-dark text-white">
@@ -37,7 +31,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             <BookOpen size={18} className="text-white" />
           </div>
           <div>
-            <h1 className="text-[13px] font-bold tracking-tight leading-tight">재근쌤 스토리북<br/><span className="text-primary-300">&amp; 기출정리</span></h1>
+            <h1 className="text-base font-bold tracking-tight">재근쌤 스토리북</h1>
+            <p className="text-[10px] text-slate-400 tracking-wider uppercase">AI Story Maker</p>
           </div>
           <button
             onClick={() => setSidebarOpen(false)}
@@ -52,15 +47,8 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           <NavLink
             to="/"
             icon={<LayoutDashboard size={18} />}
-            label="스토리북 대시보드"
+            label="대시보드"
             active={isActive('/')}
-            onClick={() => setSidebarOpen(false)}
-          />
-          <NavLink
-            to="/exam-ocr"
-            icon={<ScanSearch size={18} />}
-            label="기출OCR"
-            active={isActive('/exam-ocr') || isActive('/exam-review')}
             onClick={() => setSidebarOpen(false)}
           />
           <NavLink
@@ -74,7 +62,7 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
 
         {/* Footer */}
         <div className="px-4 py-4 border-t border-white/5">
-          <p className="text-[10px] text-slate-500 text-center">© 2026 재근쌤 스토리북 &amp; 기출정리</p>
+          <p className="text-[10px] text-slate-500 text-center">© 2026 재근쌤 스토리북</p>
         </div>
       </aside>
 
@@ -90,14 +78,14 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
           </button>
           <div className="flex items-center gap-2">
             <BookOpen size={18} className="text-primary-400" />
-            <span className="font-bold text-sm">재근쌤 스토리북 &amp; 기출정리</span>
+            <span className="font-bold text-sm">재근쌤 스토리북</span>
           </div>
           <div className="w-8" />
         </header>
 
         {/* Page Content */}
-        <main className={`flex-1 overflow-y-auto ${isFullWidth ? 'p-0' : 'p-4 lg:p-8'}`}>
-          <div className={isFullWidth ? '' : 'max-w-7xl mx-auto'}>
+        <main className="flex-1 p-4 lg:p-8 overflow-y-auto">
+          <div className="max-w-7xl mx-auto">
             {children}
           </div>
         </main>

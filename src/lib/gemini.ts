@@ -75,28 +75,28 @@ export const generateStoryContent = async (topic: string, language: StoryLanguag
     `;
   } else {
     // ═══ 한글 스토리북 ═══
-    const toneInstruction = useGeminiTTS
-      ? "스타일: 아이들에게 읽어주는 동화책처럼 매우 감정적이고, 따뜻하며, 입체적인 표현을 사용해. 생동감 넘치는 의성어와 의태어를 적절히 섞어서 작성해줘."
-      : "스타일: 차분하고 명확한 설명조로 작성해줘.";
+  const toneInstruction = useGeminiTTS
+    ? "스타일: 아이들에게 읽어주는 동화책처럼 매우 감정적이고, 따뜻하며, 입체적인 표현을 사용해. 생동감 넘치는 의성어와 의태어를 적절히 섞어서 작성해줘."
+    : "스타일: 차분하고 명확한 설명조로 작성해줘.";
 
     prompt = `
-      주제: "${topic}"
-      
-      위 주제로 짧은 스토리북을 만들어줘.
-      총 3~5개의 장면(Scene)으로 구성해줘.
-      
-      ${toneInstruction}
-      
-      결과는 반드시 JSON 형식으로만 출력해. (Markdown 코드 블록 없이 순수 JSON만)
-      형식:
-      [
-        {
-          "text": "장면 1의 나레이션 텍스트 (한글)",
-          "imagePrompt": "장면 1을 그리기 위한 영어 이미지 프롬프트 (상세하게)"
-        },
-        ...
-      ]
-    `;
+    주제: "${topic}"
+    
+    위 주제로 짧은 스토리북을 만들어줘.
+    총 3~5개의 장면(Scene)으로 구성해줘.
+    
+    ${toneInstruction}
+    
+    결과는 반드시 JSON 형식으로만 출력해. (Markdown 코드 블록 없이 순수 JSON만)
+    형식:
+    [
+      {
+        "text": "장면 1의 나레이션 텍스트 (한글)",
+        "imagePrompt": "장면 1을 그리기 위한 영어 이미지 프롬프트 (상세하게)"
+      },
+      ...
+    ]
+  `;
   }
 
   try {
@@ -528,53 +528,53 @@ export const generateAudio = async (text: string, voiceName: string = 'Aoede', l
     : `다음 텍스트를 자연스럽고 감정을 담아 읽어주세요: "${text}"`;
 
   for (const model of TTS_MODELS) {
-    try {
+  try {
       console.log(`[Gemini Audio] Trying model: ${model}, Voice: ${voiceName}, Lang: ${language}`);
 
       const url = `/api/gemini/v1beta/models/${model}:generateContent?key=${geminiApiKey}`;
 
-      const requestBody = {
-        contents: [{
+    const requestBody = {
+      contents: [{
           parts: [{ text: ttsPrompt }]
-        }],
-        generationConfig: {
-          response_modalities: ["AUDIO"],
-          speech_config: {
-            voice_config: {
-              prebuilt_voice_config: {
-                voice_name: voiceName
-              }
+      }],
+      generationConfig: {
+        response_modalities: ["AUDIO"],
+        speech_config: {
+          voice_config: {
+            prebuilt_voice_config: {
+              voice_name: voiceName
             }
           }
         }
-      };
+      }
+    };
 
-      const response = await fetch(url, {
-        method: 'POST',
+    const response = await fetch(url, {
+      method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody)
-      });
+      body: JSON.stringify(requestBody)
+    });
 
-      if (!response.ok) {
-        const errText = await response.text();
+    if (!response.ok) {
+      const errText = await response.text();
         console.warn(`[Gemini Audio] ${model} failed (${response.status}):`, errText.substring(0, 150));
         continue; // 다음 모델 시도
-      }
+    }
 
-      const data = await response.json();
-      const candidate = data.candidates?.[0];
+    const data = await response.json();
+    const candidate = data.candidates?.[0];
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const audioPart = candidate?.content?.parts?.find((p: any) => p.inline_data || p.inlineData);
-      const inlineData = audioPart?.inline_data || audioPart?.inlineData;
+    const audioPart = candidate?.content?.parts?.find((p: any) => p.inline_data || p.inlineData);
+    const inlineData = audioPart?.inline_data || audioPart?.inlineData;
 
-      if (inlineData && inlineData.data) {
-        const base64Audio = inlineData.data;
-        const binaryString = atob(base64Audio);
-        const bytes = new Uint8Array(binaryString.length);
-        for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-        }
-        const mimeType = inlineData.mime_type || inlineData.mimeType || 'audio/wav';
+    if (inlineData && inlineData.data) {
+      const base64Audio = inlineData.data;
+      const binaryString = atob(base64Audio);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      const mimeType = inlineData.mime_type || inlineData.mimeType || 'audio/wav';
         console.log(`[Gemini Audio] ✅ Raw data from ${model}! Size: ${bytes.length}, Type: ${mimeType}`);
 
         // ⚡ 핵심: L16/PCM → WAV 변환
@@ -587,8 +587,8 @@ export const generateAudio = async (text: string, voiceName: string = 'Aoede', l
         }
 
         // 이미 WAV/MP3 등 표준 포맷이면 그대로 반환
-        return new Blob([bytes], { type: mimeType });
-      }
+      return new Blob([bytes], { type: mimeType });
+    }
 
       console.warn(`[Gemini Audio] ${model}: No audio data in response`);
     } catch (error) {
@@ -697,7 +697,7 @@ export const generateSceneImage = async (imagePrompt: string, characterGuide?: s
         }
       }
       console.warn(`[Image] SDK (${sdkModel}): 응답에 이미지 없음`);
-    } catch (error) {
+  } catch (error) {
       console.warn(`[Image] SDK (${sdkModel}) 에러:`, error);
     }
   }

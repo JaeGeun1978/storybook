@@ -47,6 +47,17 @@ export function ExamOcrPage() {
 
       return ocrExtract([base64], 'extract')
         .then((text) => {
+          console.log('[ExamOcr] 이미지', i, 'OCR 결과 수신, 길이:', text.length);
+
+          if (!text.trim()) {
+            console.warn('[ExamOcr] 이미지', i, 'OCR 결과가 비어있음');
+            updateQuestion(startIndex + i, {
+              text: '[OCR 결과 없음] Gemini가 빈 응답을 반환했습니다.',
+              isLoading: false,
+            });
+            return;
+          }
+
           // 여러 [문제]가 포함된 경우 분리
           const questionParts = text.split(/(?=\[문제\])/).filter((p: string) => p.trim());
 
@@ -84,10 +95,12 @@ export function ExamOcrPage() {
               isLoading: false,
             });
           }
+          console.log('[ExamOcr] 이미지', i, '카드 업데이트 완료');
         })
-        .catch(() => {
+        .catch((err) => {
+          console.error('[ExamOcr] 이미지', i, 'OCR 실패:', err);
           updateQuestion(startIndex + i, {
-            text: '[OCR 오류] 요청 실패',
+            text: '[OCR 오류] 요청 실패: ' + (err instanceof Error ? err.message : String(err)),
             isLoading: false,
           });
         });
@@ -149,7 +162,9 @@ export function ExamOcrPage() {
 
         const text = await ocrExtract(images, mode);
 
-        if (text) {
+        console.log('[ExamOcr] 영역 OCR 결과 수신, 길이:', text?.length, '| 앞부분:', text?.substring(0, 100));
+
+        if (text && text.trim()) {
           const regionCoords: [number, number, number, number] = [
             Math.round(regions[0].x),
             Math.round(regions[0].y),
@@ -186,6 +201,10 @@ export function ExamOcrPage() {
               region: regionCoords,
             });
           }
+          console.log('[ExamOcr] 영역 OCR → 카드 추가 완료');
+        } else {
+          console.warn('[ExamOcr] 영역 OCR 결과가 비어있음');
+          alert('OCR 결과가 비어있습니다. 다시 시도해주세요.');
         }
       } catch (error) {
         console.error('OCR 처리 실패:', error);

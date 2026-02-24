@@ -130,6 +130,7 @@ export default function QuestionCard({
           {onSelect && (
             <input
               type="checkbox"
+              name={`select-card-${id}`}
               checked={isSelected}
               disabled={isLoading}
               onChange={(e) => onSelect(e.target.checked)}
@@ -215,6 +216,7 @@ export default function QuestionCard({
             {/* 텍스트 에디터 */}
             <textarea
               ref={textareaRef}
+              name={`question-text-${id}`}
               value={text}
               onChange={(e) => onUpdate(e.target.value)}
               className="w-full p-3 text-sm font-mono resize-y min-h-[120px] max-h-[400px] border-0 focus:outline-none focus:ring-0"

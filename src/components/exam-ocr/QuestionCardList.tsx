@@ -78,20 +78,27 @@ export default function QuestionCardList() {
     const texts = indices.map((i) => questions[i].text);
 
     setIsBatchLoading(true);
+    console.log('[BatchAnswer] 일괄 요청:', indices.length, '개 문제');
 
     try {
       const responseText = await getBatchAnswer(texts);
-      if (responseText) {
+      console.log('[BatchAnswer] 응답 수신, 길이:', responseText?.length);
+
+      if (responseText && responseText.trim()) {
         const parsed = parseBatchAnswerResponse(responseText, indices.length);
+        console.log('[BatchAnswer] 파싱 결과:', parsed.length, '개');
         indices.forEach((cardIndex, i) => {
           if (parsed[i]) {
             const merged = mergeAnswerIntoText(questions[cardIndex].text, parsed[i]);
             updateQuestion(cardIndex, { text: merged });
           }
         });
+      } else {
+        console.warn('[BatchAnswer] 빈 응답 수신');
       }
     } catch (error) {
       console.error('일괄 정답/해설 가져오기 실패:', error);
+      alert('일괄 정답/해설 가져오기에 실패했습니다.');
     } finally {
       setIsBatchLoading(false);
       setSelectedIndices(new Set());
@@ -104,13 +111,26 @@ export default function QuestionCardList() {
       setLoadingAnswerIndices((prev) => new Set(prev).add(index));
 
       try {
-        const responseText = await getAnswer(questions[index].text);
-        if (responseText) {
-          const merged = mergeAnswerIntoText(questions[index].text, responseText);
+        const currentText = questions[index]?.text;
+        if (!currentText) {
+          console.warn('[Answer] 문제 텍스트가 비어있음, index:', index);
+          return;
+        }
+        console.log('[Answer] 정답/해설 요청, index:', index, '텍스트 길이:', currentText.length);
+
+        const responseText = await getAnswer(currentText);
+        console.log('[Answer] 응답 수신, 길이:', responseText?.length);
+
+        if (responseText && responseText.trim()) {
+          const merged = mergeAnswerIntoText(currentText, responseText);
+          console.log('[Answer] 병합 결과 길이:', merged.length);
           updateQuestion(index, { text: merged });
+        } else {
+          console.warn('[Answer] 빈 응답 수신');
         }
       } catch (error) {
         console.error('정답/해설 가져오기 실패:', error);
+        alert('정답/해설 가져오기에 실패했습니다: ' + (error instanceof Error ? error.message : String(error)));
       } finally {
         setLoadingAnswerIndices((prev) => {
           const next = new Set(prev);
@@ -144,6 +164,7 @@ export default function QuestionCardList() {
             <label className="flex items-center gap-1.5 cursor-pointer">
               <input
                 type="checkbox"
+                name="select-all-questions"
                 checked={isAllSelected}
                 onChange={handleToggleAll}
                 className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500"

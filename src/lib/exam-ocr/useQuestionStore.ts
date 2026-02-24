@@ -37,6 +37,7 @@ export const useQuestionStore = create<QuestionStore>()(
           number: questions.length + 1,
           saved_at: new Date().toISOString(),
         };
+        console.log('[Store] addQuestion - 새 문제 추가, #' + newQuestion.number, '텍스트 길이:', newQuestion.text.length);
         set({ questions: [...questions, newQuestion], hasUnsavedChanges: true });
       },
 
@@ -57,9 +58,14 @@ export const useQuestionStore = create<QuestionStore>()(
 
       updateQuestion: (index, updates) => {
         const { questions } = get();
+        if (index < 0 || index >= questions.length) {
+          console.error('[Store] updateQuestion - 잘못된 인덱스:', index, '(전체:', questions.length, '개)');
+          return;
+        }
         const updated = questions.map((q, i) =>
           i === index ? { ...q, ...updates } : q
         );
+        console.log('[Store] updateQuestion - #' + (index + 1), 'isLoading:', updates.isLoading, '텍스트 길이:', updates.text?.length);
         set({ questions: updated, hasUnsavedChanges: true });
       },
 

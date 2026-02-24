@@ -19,13 +19,21 @@ const MODEL = 'gemini-2.0-flash';
  * Gemini 응답에서 마크다운 코드 블록 및 불필요한 래핑 제거
  */
 function cleanGeminiResponse(text: string): string {
-  let cleaned = text;
-  // 마크다운 코드 블록 제거 (```json ... ``` 또는 ``` ... ```)
-  const codeBlockMatch = cleaned.match(/```(?:\w*)\s*\n?([\s\S]*?)\n?\s*```/);
-  if (codeBlockMatch) {
-    cleaned = codeBlockMatch[1];
+  let cleaned = text.trim();
+
+  // 전체 응답이 하나의 코드 블록으로 감싸진 경우 제거
+  if (cleaned.startsWith('```')) {
+    const firstNewline = cleaned.indexOf('\n');
+    if (firstNewline !== -1) {
+      const lastBacktickPos = cleaned.lastIndexOf('```');
+      // 닫는 ```가 여는 ``` 이후에 있고, 응답 끝부분에 위치한 경우만 제거
+      if (lastBacktickPos > firstNewline && cleaned.substring(lastBacktickPos + 3).trim() === '') {
+        cleaned = cleaned.substring(firstNewline + 1, lastBacktickPos).trim();
+      }
+    }
   }
-  return cleaned.trim();
+
+  return cleaned;
 }
 
 function getClient(): GoogleGenerativeAI {
@@ -76,6 +84,8 @@ export async function ocrExtract(
       const result = await model.generateContent(parts);
       const text = result.response.text();
 
+      console.log('[OCR] Gemini 원본 응답 길이:', text.length, '| 앞부분:', text.substring(0, 200));
+
       // 거부 응답 확인
       if (text.trim().length < 50) {
         const lower = text.toLowerCase();
@@ -86,12 +96,22 @@ export async function ocrExtract(
           lower.includes('unable');
 
         if (isRejection && attempt < maxRetries) {
+          console.log('[OCR] 거부 응답 감지, 재시도:', attempt + 1);
           continue;
         }
       }
 
-      return cleanGeminiResponse(text);
+      const cleaned = cleanGeminiResponse(text);
+      console.log('[OCR] 정리된 텍스트 길이:', cleaned.length, '| 앞부분:', cleaned.substring(0, 200));
+
+      if (!cleaned) {
+        console.warn('[OCR] cleanGeminiResponse 후 빈 텍스트! 원본으로 대체');
+        return text.trim();
+      }
+
+      return cleaned;
     } catch (error) {
+      console.error('[OCR] 시도', attempt + 1, '실패:', error);
       if (attempt >= maxRetries) throw error;
     }
   }
@@ -106,7 +126,14 @@ export async function getAnswer(text: string): Promise<string> {
   const ai = getClient();
   const model = ai.getGenerativeModel({ model: MODEL });
   const result = await model.generateContent(ANSWER_EXPLANATION_PROMPT(text));
-  return cleanGeminiResponse(result.response.text());
+  const raw = result.response.text();
+  const cleaned = cleanGeminiResponse(raw);
+  console.log('[Answer] 원본 응답 길이:', raw.length, '| 정리 후:', cleaned.length);
+  if (!cleaned) {
+    console.warn('[Answer] cleanGeminiResponse 후 빈 텍스트! 원본으로 대체');
+    return raw.trim();
+  }
+  return cleaned;
 }
 
 /**

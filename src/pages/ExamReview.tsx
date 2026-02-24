@@ -235,6 +235,7 @@ export function ExamReviewPage() {
       <div className="flex-1 p-6 min-h-0">
         <textarea
           ref={textareaRef}
+          name="review-question-text"
           value={question?.text ?? ''}
           onChange={(e) => handleUpdate(e.target.value)}
           className="w-full h-full p-6 text-base font-mono leading-relaxed rounded-xl border border-gray-200 bg-white resize-none focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"

@@ -157,6 +157,7 @@ export default function ImageDropZone({
       >
         <input
           ref={fileInputRef}
+          name="ocr-file-input"
           type="file"
           accept="image/*,.pdf"
           multiple

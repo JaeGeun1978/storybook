@@ -1,13 +1,19 @@
 """
 Firebase Cloud Functions (Python Gen 2)
 기출문제 JSON → HWPX 변환 API
+
+이중 방식:
+  A) 템플릿 기반 변환: 사용자 업로드 .hwpx 템플릿의 스타일/레이아웃 보존
+  B) md2hwpx 기본 변환: 템플릿 없을 때 Markdown → HWPX 변환
 """
 
 import os
 import re
 import json
+import zipfile
 import tempfile
 import base64
+import random
 from firebase_functions import https_fn, options
 from md2hwpx.marko_adapter import MarkoToPandocAdapter
 from md2hwpx import MarkdownToHwpx
@@ -82,19 +88,12 @@ def process_formatting_markers(text: str) -> str:
 
 
 # ═══════════════════════════════════════════
-# JSON → Markdown 변환
+# JSON → Markdown 변환 (방식 B: md2hwpx용)
 # ═══════════════════════════════════════════
 
 def questions_to_markdown(questions: list, title: str = "기출문제 정리") -> str:
     """
     Question 배열을 시험지 형식의 Markdown으로 변환합니다.
-    
-    기존 hwp_converter.py의 스타일 매핑:
-      - 출처 (StyleShortcut2) → H2 헤더
-      - 지시문 (StyleShortcut4) → Bold 텍스트
-      - 지문 (StyleShortcut6) → 인용 블록 (blockquote)
-      - 보기 (StyleShortcut8) → 일반 텍스트
-      - 정답/해설 (Endnote) → 각주 표시
     """
     lines = []
     lines.append(f"# {title}\n")
@@ -108,26 +107,21 @@ def questions_to_markdown(questions: list, title: str = "기출문제 정리") -
         answer = q.get("answer", "")
         explanation = q.get("explanation", "")
 
-        # 출처가 변경되었을 때만 헤더 삽입
         if source and source != current_source:
             lines.append(f"## {source}\n")
             current_source = source
 
-        # 문제 텍스트 파싱
         instruction, passage, options_text = split_question_text(text)
 
-        # 서식 마커 처리
         instruction = process_formatting_markers(instruction) if instruction else ""
         passage = process_formatting_markers(passage) if passage else ""
         options_text = process_formatting_markers(options_text) if options_text else ""
 
-        # 지시문 (문제 헤더) - 볼드
         if instruction:
             lines.append(f"**{number}. {instruction}**\n")
         else:
             lines.append(f"**{number}.**\n")
 
-        # 지문 - 인용 블록
         if passage:
             for p_line in passage.split("\n"):
                 p_line = p_line.strip()
@@ -135,7 +129,6 @@ def questions_to_markdown(questions: list, title: str = "기출문제 정리") -
                     lines.append(f"> {p_line}")
             lines.append("")
 
-        # 보기 - 원문자 줄바꿈 유지
         if options_text:
             for opt_line in options_text.split("\n"):
                 opt_line = opt_line.strip()
@@ -143,7 +136,6 @@ def questions_to_markdown(questions: list, title: str = "기출문제 정리") -
                     lines.append(opt_line)
             lines.append("")
 
-        # 정답 & 해설
         if answer or explanation:
             answer_parts = []
             if answer:
@@ -152,35 +144,28 @@ def questions_to_markdown(questions: list, title: str = "기출문제 정리") -
                 answer_parts.append(f"해설: {explanation}")
             lines.append(f"*{' | '.join(answer_parts)}*\n")
 
-        # 문제 구분선
         lines.append("---\n")
 
     return "\n".join(lines)
 
 
 # ═══════════════════════════════════════════
-# HWPX 변환 핵심 함수
+# 방식 B: md2hwpx 기본 변환
 # ═══════════════════════════════════════════
 
-def convert_to_hwpx_bytes(json_data: dict, title: str = "기출문제 정리") -> bytes:
+def convert_to_hwpx_default(json_data: dict, title: str = "기출문제 정리") -> bytes:
     """
-    JSON 데이터를 HWPX 바이트로 변환합니다.
-    
-    Returns:
-        bytes: HWPX 파일의 바이트 데이터
+    md2hwpx 라이브러리로 기본 변환 (템플릿 없을 때)
     """
     questions = json_data.get("questions", [])
     if not questions:
         raise ValueError("변환할 문제가 없습니다")
 
-    # 1. JSON → Markdown
     markdown = questions_to_markdown(questions, title)
 
-    # 2. Markdown → Pandoc AST
     adapter = MarkoToPandocAdapter()
     json_ast = adapter.parse(markdown)
 
-    # 3. 임시 파일로 변환
     with tempfile.TemporaryDirectory() as tmpdir:
         md_path = os.path.join(tmpdir, "exam.md")
         hwpx_path = os.path.join(tmpdir, "exam.hwpx")
@@ -188,7 +173,6 @@ def convert_to_hwpx_bytes(json_data: dict, title: str = "기출문제 정리") -
         with open(md_path, "w", encoding="utf-8") as f:
             f.write(markdown)
 
-        # md2hwpx 기본 blank 템플릿 사용
         blank_template = os.path.join(
             os.path.dirname(md2hwpx.__file__), "blank.hwpx"
         )
@@ -197,6 +181,244 @@ def convert_to_hwpx_bytes(json_data: dict, title: str = "기출문제 정리") -
         )
 
         with open(hwpx_path, "rb") as f:
+            return f.read()
+
+
+# ═══════════════════════════════════════════
+# 방식 A: 템플릿 기반 HWPX XML 직접 조작
+# ═══════════════════════════════════════════
+
+def _xml_escape(text: str) -> str:
+    """XML 특수문자 이스케이프"""
+    text = text.replace('&', '&amp;')
+    text = text.replace('<', '&lt;')
+    text = text.replace('>', '&gt;')
+    text = text.replace('"', '&quot;')
+    text = text.replace("'", '&apos;')
+    return text
+
+
+def _unique_id() -> str:
+    """HWPX 문단 고유 ID 생성"""
+    return str(random.randint(100000000, 2147483647))
+
+
+def _make_paragraph(text: str, style_id: int, para_pr_id: int, char_pr_id: int) -> str:
+    """
+    단일 HWPX 문단 XML을 생성합니다.
+    
+    Args:
+        text: 문단 텍스트 (줄바꿈은 \\n)
+        style_id: 스타일 ID (styleIDRef)
+        para_pr_id: 문단 속성 ID (paraPrIDRef)  
+        char_pr_id: 문자 속성 ID (charPrIDRef)
+    """
+    pid = _unique_id()
+    escaped = _xml_escape(text)
+    
+    # 줄바꿈 처리: 각 줄을 별도의 run으로
+    lines = escaped.split('\n')
+    runs_xml = ""
+    for i, line in enumerate(lines):
+        line = line.strip()
+        if not line:
+            continue
+        if i > 0:
+            # 줄바꿈: 새 문단 대신 run 내에서 처리
+            runs_xml += f'<hp:run charPrIDRef="{char_pr_id}"><hp:t>{line}</hp:t></hp:run>'
+        else:
+            runs_xml += f'<hp:run charPrIDRef="{char_pr_id}"><hp:t>{line}</hp:t></hp:run>'
+    
+    if not runs_xml:
+        runs_xml = f'<hp:run charPrIDRef="{char_pr_id}"><hp:t/></hp:run>'
+    
+    return (
+        f'<hp:p id="{pid}" paraPrIDRef="{para_pr_id}" '
+        f'styleIDRef="{style_id}" pageBreak="0" columnBreak="0" merged="0">'
+        f'{runs_xml}</hp:p>'
+    )
+
+
+def _make_paragraph_with_endnote(
+    text: str, style_id: int, para_pr_id: int, char_pr_id: int,
+    endnote_text: str, endnote_num: int, endnote_char_pr_id: int, endnote_para_pr_id: int
+) -> str:
+    """
+    미주(Endnote)가 포함된 HWPX 문단을 생성합니다.
+    문제 지시문 끝에 미주를 달아 정답/해설을 넣습니다.
+    """
+    pid = _unique_id()
+    endnote_pid = _unique_id()
+    endnote_sub_id = _unique_id()
+    escaped_text = _xml_escape(text)
+    escaped_note = _xml_escape(endnote_text)
+    
+    return (
+        f'<hp:p id="{pid}" paraPrIDRef="{para_pr_id}" '
+        f'styleIDRef="{style_id}" pageBreak="0" columnBreak="0" merged="0">'
+        f'<hp:run charPrIDRef="{char_pr_id}"><hp:t>{escaped_text}</hp:t></hp:run>'
+        f'<hp:run charPrIDRef="{char_pr_id}">'
+        f'<hp:ctrl>'
+        f'<hp:endNote id="{endnote_pid}" number="{endnote_num}">'
+        f'<hp:subList id="{endnote_sub_id}" textDirection="HORIZONTAL" '
+        f'lineWrap="BREAK" vertAlign="TOP" linkListIDRef="0" linkListNextIDRef="0" '
+        f'textWidth="0" textHeight="0" hasTextRef="0" hasNumRef="0">'
+        f'<hp:p id="{_unique_id()}" paraPrIDRef="{endnote_para_pr_id}" '
+        f'styleIDRef="17" pageBreak="0" columnBreak="0" merged="0">'
+        f'<hp:run charPrIDRef="{endnote_char_pr_id}"><hp:t>{escaped_note}</hp:t></hp:run>'
+        f'</hp:p>'
+        f'</hp:subList>'
+        f'</hp:endNote>'
+        f'</hp:ctrl>'
+        f'</hp:run>'
+        f'</hp:p>'
+    )
+
+
+# 템플릿 스타일 매핑 (template.hwpx 기준)
+# StyleShortcut0 → id=0 바탕글    (paraPr=0, charPr=11)
+# StyleShortcut2 → id=1 원본문제풀이 (paraPr=1, charPr=19) → 출처
+# StyleShortcut4 → id=3 문제       (paraPr=18, charPr=16) → 지시문
+# StyleShortcut6 → id=5 본문       (paraPr=5, charPr=14)  → 지문
+# StyleShortcut8 → id=7 보기문     (paraPr=14, charPr=16) → 선택지
+# 미주 스타일    → id=17           (paraPr=15, charPr=8)  → 정답/해설
+
+STYLE_MAP = {
+    "source":      {"style": 1,  "paraPr": 1,  "charPr": 19},  # 출처
+    "instruction": {"style": 3,  "paraPr": 18, "charPr": 16},  # 문제 지시문
+    "stem":        {"style": 5,  "paraPr": 5,  "charPr": 14},  # 지문
+    "options":     {"style": 7,  "paraPr": 14, "charPr": 16},  # 보기문
+    "endnote":     {"style": 17, "paraPr": 15, "charPr": 8},   # 미주
+}
+
+
+def convert_with_template(template_bytes: bytes, json_data: dict, title: str = "기출문제 정리") -> bytes:
+    """
+    사용자 템플릿을 기반으로 HWPX를 생성합니다.
+    
+    1. 템플릿 ZIP 해제
+    2. header.xml (스타일/글꼴 정의) 그대로 보존
+    3. section0.xml에 문제 내용 문단 삽입
+    4. 다시 ZIP 압축하여 반환
+    """
+    questions = json_data.get("questions", [])
+    if not questions:
+        raise ValueError("변환할 문제가 없습니다")
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        template_path = os.path.join(tmpdir, "template.hwpx")
+        output_path = os.path.join(tmpdir, "output.hwpx")
+
+        # 1. 템플릿 저장 및 해제
+        with open(template_path, "wb") as f:
+            f.write(template_bytes)
+
+        with zipfile.ZipFile(template_path, "r") as zin:
+            section_xml = zin.read("Contents/section0.xml").decode("utf-8")
+            all_files = {}
+            for info in zin.infolist():
+                all_files[info.filename] = zin.read(info.filename)
+
+        # 2. section0.xml에서 구조 부분(첫 문단) 추출
+        # 첫 번째 </hp:p> 까지가 구조 문단 (컬럼/페이지 설정 포함)
+        # 이 부분은 그대로 유지하고, 그 뒤에 내용 문단을 추가
+        close_sec_tag = "</hs:sec>"
+        first_p_end = section_xml.find("</hp:p>")
+        
+        if first_p_end == -1:
+            raise ValueError("템플릿 section0.xml 파싱 실패: </hp:p> 태그 없음")
+        
+        # 구조 부분: 섹션 시작 ~ 첫 문단 끝
+        structural_part = section_xml[:first_p_end + len("</hp:p>")]
+        
+        # 3. 문제별 내용 문단 생성
+        content_paragraphs = []
+        current_source = ""
+        endnote_counter = 1
+
+        for i, q in enumerate(questions):
+            number = q.get("number", i + 1)
+            source = q.get("source", "")
+            text = q.get("text", "")
+            answer = q.get("answer", "")
+            explanation = q.get("explanation", "")
+
+            # 출처 변경 시 출처 문단 삽입
+            if source and source != current_source:
+                s = STYLE_MAP["source"]
+                content_paragraphs.append(
+                    _make_paragraph(source, s["style"], s["paraPr"], s["charPr"])
+                )
+                current_source = source
+
+            # 문제 텍스트 파싱
+            instruction, passage, options_text = split_question_text(text)
+
+            # 지시문 (문제 헤더) + 미주(정답/해설)
+            instruction_text = f"{number}. {instruction}" if instruction else f"{number}."
+            
+            s_inst = STYLE_MAP["instruction"]
+            if answer or explanation:
+                # 정답/해설이 있으면 미주 포함
+                endnote_parts = []
+                if answer:
+                    endnote_parts.append(f"정답: {answer}")
+                if explanation:
+                    endnote_parts.append(f"해설: {explanation}")
+                endnote_content = " | ".join(endnote_parts)
+                
+                s_note = STYLE_MAP["endnote"]
+                content_paragraphs.append(
+                    _make_paragraph_with_endnote(
+                        instruction_text,
+                        s_inst["style"], s_inst["paraPr"], s_inst["charPr"],
+                        endnote_content, endnote_counter,
+                        s_note["charPr"], s_note["paraPr"]
+                    )
+                )
+                endnote_counter += 1
+            else:
+                content_paragraphs.append(
+                    _make_paragraph(instruction_text, s_inst["style"], s_inst["paraPr"], s_inst["charPr"])
+                )
+
+            # 지문 (제시문) - 여러 줄이면 각각 별도 문단
+            if passage:
+                s_stem = STYLE_MAP["stem"]
+                for line in passage.split("\n"):
+                    line = line.strip()
+                    if line:
+                        content_paragraphs.append(
+                            _make_paragraph(line, s_stem["style"], s_stem["paraPr"], s_stem["charPr"])
+                        )
+
+            # 보기문 - 각 선택지를 별도 문단으로
+            if options_text:
+                s_opt = STYLE_MAP["options"]
+                for line in options_text.split("\n"):
+                    line = line.strip()
+                    if line:
+                        content_paragraphs.append(
+                            _make_paragraph(line, s_opt["style"], s_opt["paraPr"], s_opt["charPr"])
+                        )
+
+            # 문제 사이 빈 문단 (간격)
+            content_paragraphs.append(
+                _make_paragraph("", STYLE_MAP["stem"]["style"], STYLE_MAP["stem"]["paraPr"], STYLE_MAP["stem"]["charPr"])
+            )
+
+        # 4. 새 section0.xml 조립
+        new_section = structural_part + "".join(content_paragraphs) + close_sec_tag
+
+        # 5. 출력 HWPX ZIP 생성
+        with zipfile.ZipFile(output_path, "w", zipfile.ZIP_DEFLATED) as zout:
+            for filename, data in all_files.items():
+                if filename == "Contents/section0.xml":
+                    zout.writestr(filename, new_section.encode("utf-8"))
+                else:
+                    zout.writestr(filename, data)
+
+        with open(output_path, "rb") as f:
             return f.read()
 
 
@@ -217,24 +439,20 @@ def convert_to_hwpx(req: https_fn.Request) -> https_fn.Response:
     """
     POST /convert_to_hwpx
     
+    이중 방식: template_base64가 있으면 템플릿 기반 변환, 없으면 md2hwpx 기본 변환
+    
     Request Body (JSON):
     {
         "title": "시험지 제목",
-        "questions": [
-            {
-                "number": 1,
-                "source": "출처",
-                "text": "문제 텍스트",
-                "answer": "정답",
-                "explanation": "해설"
-            }
-        ]
+        "questions": [...],
+        "template_base64": "(선택) 사용자 .hwpx 템플릿 Base64"
     }
     
     Response:
     {
         "success": true,
-        "filename": "기출문제_2026-02-24.hwpx",
+        "mode": "template" | "default",
+        "filename": "시험지제목_2026-02-24.hwpx",
         "data": "<base64 encoded hwpx>"
     }
     """
@@ -260,6 +478,7 @@ def convert_to_hwpx(req: https_fn.Request) -> https_fn.Response:
 
         title = body.get("title", "기출문제 정리")
         questions = body.get("questions", [])
+        template_base64 = body.get("template_base64", None)
 
         if not questions:
             return https_fn.Response(
@@ -268,10 +487,20 @@ def convert_to_hwpx(req: https_fn.Request) -> https_fn.Response:
                 content_type="application/json",
             )
 
-        # HWPX 변환
-        hwpx_bytes = convert_to_hwpx_bytes(
-            {"questions": questions}, title=title
-        )
+        # 이중 방식: 템플릿 유무에 따라 분기
+        if template_base64:
+            # 방식 A: 템플릿 기반 변환
+            template_bytes = base64.b64decode(template_base64)
+            hwpx_bytes = convert_with_template(
+                template_bytes, {"questions": questions}, title=title
+            )
+            mode = "template"
+        else:
+            # 방식 B: md2hwpx 기본 변환
+            hwpx_bytes = convert_to_hwpx_default(
+                {"questions": questions}, title=title
+            )
+            mode = "default"
 
         # Base64 인코딩하여 반환
         from datetime import datetime
@@ -282,6 +511,7 @@ def convert_to_hwpx(req: https_fn.Request) -> https_fn.Response:
         return https_fn.Response(
             json.dumps({
                 "success": True,
+                "mode": mode,
                 "filename": filename,
                 "data": base64.b64encode(hwpx_bytes).decode("utf-8"),
                 "size": len(hwpx_bytes),

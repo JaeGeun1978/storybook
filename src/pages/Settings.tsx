@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
-import { Save, Key, ExternalLink, CheckCircle, Volume2, Shield, AlertTriangle } from 'lucide-react';
-import { getSettings, saveSettings, type AppSettings, type GeminiVoice } from '../lib/store';
+import React, { useEffect, useState, useRef } from 'react';
+import { Save, Key, ExternalLink, CheckCircle, Volume2, Shield, AlertTriangle, FileText, Upload, Trash2 } from 'lucide-react';
+import { getSettings, saveSettings, type AppSettings, type GeminiVoice, getHwpxTemplate, saveHwpxTemplate, removeHwpxTemplate } from '../lib/store';
 import { useAuth } from '../lib/AuthContext';
 
 const VOICE_OPTIONS: { id: GeminiVoice; label: string; desc: string; emoji: string }[] = [
@@ -21,9 +21,56 @@ export const SettingsPage: React.FC = () => {
   const [status, setStatus] = useState<'idle' | 'saved'>('idle');
   const [showKey, setShowKey] = useState(false);
 
+  // HWPX 템플릿 관련 상태
+  const [templateInfo, setTemplateInfo] = useState<{ name: string; size: string } | null>(null);
+  const [templateUploading, setTemplateUploading] = useState(false);
+  const templateInputRef = useRef<HTMLInputElement>(null);
+
   useEffect(() => {
     setSettings(getSettings());
+    // 저장된 템플릿 정보 로드
+    const saved = getHwpxTemplate();
+    if (saved) {
+      const sizeKB = Math.round((saved.data.length * 3) / 4 / 1024); // base64 → 원본 크기 추정
+      setTemplateInfo({ name: saved.name, size: `${sizeKB}KB` });
+    }
   }, []);
+
+  const handleTemplateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (!file.name.endsWith('.hwpx')) {
+      alert('.hwpx 파일만 업로드할 수 있습니다.');
+      return;
+    }
+
+    setTemplateUploading(true);
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      const bytes = new Uint8Array(arrayBuffer);
+      let binary = '';
+      for (let i = 0; i < bytes.length; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      const base64 = btoa(binary);
+
+      saveHwpxTemplate(base64, file.name);
+      const sizeKB = Math.round(file.size / 1024);
+      setTemplateInfo({ name: file.name, size: `${sizeKB}KB` });
+    } catch (err) {
+      console.error('템플릿 업로드 실패:', err);
+      alert('템플릿 파일 읽기에 실패했습니다.');
+    } finally {
+      setTemplateUploading(false);
+      if (templateInputRef.current) templateInputRef.current.value = '';
+    }
+  };
+
+  const handleTemplateRemove = () => {
+    removeHwpxTemplate();
+    setTemplateInfo(null);
+  };
 
   const handleSave = () => {
     saveSettings(settings);
@@ -133,6 +180,75 @@ export const SettingsPage: React.FC = () => {
             <ExternalLink size={12} />
             Google AI Studio에서 API 키 발급받기 →
           </a>
+        </div>
+
+        {/* HWPX Template Section */}
+        <div className="rounded-2xl bg-surface border border-white/5 p-6 animate-fade-in-up" style={{ animationDelay: '0.15s' }}>
+          <div className="flex items-start gap-4 mb-5">
+            <div className="w-11 h-11 rounded-xl bg-teal-500/15 flex items-center justify-center flex-shrink-0">
+              <FileText size={20} className="text-teal-400" />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white">한글(HWPX) 템플릿</h3>
+              <p className="text-xs text-slate-400 mt-1 leading-relaxed">
+                기출문제 내보내기 시 사용할 한글 템플릿 파일(.hwpx)을 업로드하세요.
+                템플릿의 스타일(글꼴, 크기, 단 설정 등)이 그대로 적용됩니다.
+                <br />
+                <span className="text-slate-500">템플릿 미설정 시 기본 형식으로 변환됩니다.</span>
+              </p>
+            </div>
+          </div>
+
+          {/* Template Status */}
+          <div className={`mb-4 px-4 py-3 rounded-xl flex items-center gap-3 ${
+            templateInfo
+              ? 'bg-teal-500/10 border border-teal-500/20'
+              : 'bg-white/[0.03] border border-white/5'
+          }`}>
+            {templateInfo ? (
+              <>
+                <CheckCircle size={16} className="text-teal-400" />
+                <div className="flex-1 min-w-0">
+                  <span className="text-xs font-medium text-teal-300 block truncate">{templateInfo.name}</span>
+                  <span className="text-[10px] text-slate-500">{templateInfo.size}</span>
+                </div>
+                <button
+                  onClick={handleTemplateRemove}
+                  className="p-1.5 rounded-lg text-slate-500 hover:text-red-400 hover:bg-red-500/10 transition-all"
+                  title="템플릿 삭제"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </>
+            ) : (
+              <>
+                <FileText size={16} className="text-slate-500" />
+                <span className="text-xs text-slate-500">템플릿이 설정되지 않았습니다 (기본 형식 사용)</span>
+              </>
+            )}
+          </div>
+
+          {/* Upload Button */}
+          <input
+            ref={templateInputRef}
+            type="file"
+            accept=".hwpx"
+            onChange={handleTemplateUpload}
+            className="hidden"
+            name="hwpx-template-input"
+          />
+          <button
+            onClick={() => templateInputRef.current?.click()}
+            disabled={templateUploading}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium
+              bg-teal-500/10 border border-teal-500/20 text-teal-400
+              hover:bg-teal-500/20 hover:border-teal-500/30
+              disabled:opacity-50 disabled:cursor-not-allowed
+              transition-all duration-200"
+          >
+            <Upload size={16} />
+            {templateUploading ? '업로드 중...' : templateInfo ? '템플릿 변경' : '템플릿 업로드'}
+          </button>
         </div>
 
         {/* TTS Settings */}

@@ -1,10 +1,15 @@
 /**
  * HWPX 내보내기 모듈
  * Firebase Cloud Function을 호출하여 JSON → HWPX 변환
+ * 
+ * 이중 방식:
+ *   A) 사용자가 설정에서 .hwpx 템플릿을 업로드한 경우 → 템플릿 기반 변환
+ *   B) 템플릿 없으면 → md2hwpx 기본 변환
  */
 
 import type { Question } from './types.ts';
 import { questionsToExportJson } from './questionParser.ts';
+import { getHwpxTemplate } from '../store.ts';
 
 // Firebase Cloud Function URL (배포 후 실제 URL로 교체)
 // 형식: https://<region>-<project-id>.cloudfunctions.net/convert_to_hwpx
@@ -34,17 +39,32 @@ export async function exportQuestionsHwpx(
     const exportData = questionsToExportJson(questions);
     const jsonData = exportData as { questions: Array<Record<string, unknown>> };
 
-    // Cloud Function 호출
-    onProgress?.('서버에서 HWPX 생성 중...');
+    // 저장된 템플릿이 있는지 확인
+    const template = getHwpxTemplate();
+    const useTemplate = !!template;
+
+    if (useTemplate) {
+      onProgress?.('템플릿 기반으로 HWPX 생성 중...');
+    } else {
+      onProgress?.('서버에서 HWPX 생성 중...');
+    }
+
+    // Cloud Function 호출 (템플릿이 있으면 함께 전송)
+    const requestBody: Record<string, unknown> = {
+      title: exportTitle,
+      questions: jsonData.questions,
+    };
+
+    if (template) {
+      requestBody.template_base64 = template.data;
+    }
+
     const response = await fetch(CLOUD_FUNCTION_URL, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({
-        title: exportTitle,
-        questions: jsonData.questions,
-      }),
+      body: JSON.stringify(requestBody),
     });
 
     if (!response.ok) {

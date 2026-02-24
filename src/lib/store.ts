@@ -37,26 +37,3 @@ export const useSettingsSubscription = (_callback: (settings: AppSettings) => vo
     // For now, components can just read on mount or update.
     // A better approach for React is a Context or a Hook.
 };
-
-// ═══════════════════════════════════════════
-// HWPX 템플릿 관리 (별도 localStorage 키 사용)
-// ═══════════════════════════════════════════
-const TEMPLATE_DATA_KEY = 'hwpx_template_data';
-const TEMPLATE_NAME_KEY = 'hwpx_template_name';
-
-export const saveHwpxTemplate = (base64Data: string, fileName: string) => {
-    localStorage.setItem(TEMPLATE_DATA_KEY, base64Data);
-    localStorage.setItem(TEMPLATE_NAME_KEY, fileName);
-};
-
-export const getHwpxTemplate = (): { data: string; name: string } | null => {
-    const data = localStorage.getItem(TEMPLATE_DATA_KEY);
-    const name = localStorage.getItem(TEMPLATE_NAME_KEY);
-    if (data && name) return { data, name };
-    return null;
-};
-
-export const removeHwpxTemplate = () => {
-    localStorage.removeItem(TEMPLATE_DATA_KEY);
-    localStorage.removeItem(TEMPLATE_NAME_KEY);
-};

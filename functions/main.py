@@ -19,6 +19,9 @@ from md2hwpx.marko_adapter import MarkoToPandocAdapter
 from md2hwpx import MarkdownToHwpx
 import md2hwpx
 
+# 기본 내장 템플릿 경로 (Cloud Function에 번들)
+BUNDLED_TEMPLATE_PATH = os.path.join(os.path.dirname(__file__), "template.hwpx")
+
 # CORS 허용 (Vercel + localhost 개발 환경)
 CORS_ORIGINS = [
     "http://localhost:5173",
@@ -487,16 +490,27 @@ def convert_to_hwpx(req: https_fn.Request) -> https_fn.Response:
                 content_type="application/json",
             )
 
-        # 이중 방식: 템플릿 유무에 따라 분기
+        # 이중 방식: 템플릿 우선, 없으면 md2hwpx 폴백
+        # 우선순위: 1) 클라이언트가 보낸 템플릿 → 2) 서버 내장 템플릿 → 3) md2hwpx 기본
+        template_bytes = None
+        
         if template_base64:
-            # 방식 A: 템플릿 기반 변환
+            # 클라이언트에서 보낸 사용자 커스텀 템플릿
             template_bytes = base64.b64decode(template_base64)
+            mode = "custom_template"
+        elif os.path.exists(BUNDLED_TEMPLATE_PATH):
+            # 서버에 내장된 기본 템플릿
+            with open(BUNDLED_TEMPLATE_PATH, "rb") as tf:
+                template_bytes = tf.read()
+            mode = "bundled_template"
+        
+        if template_bytes:
+            # 템플릿 기반 변환
             hwpx_bytes = convert_with_template(
                 template_bytes, {"questions": questions}, title=title
             )
-            mode = "template"
         else:
-            # 방식 B: md2hwpx 기본 변환
+            # md2hwpx 기본 변환 (폴백)
             hwpx_bytes = convert_to_hwpx_default(
                 {"questions": questions}, title=title
             )

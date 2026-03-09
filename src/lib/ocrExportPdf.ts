@@ -204,7 +204,9 @@ function parseQuestionStructure(text: string): ParsedQuestion {
     .join('\n');
 
   // 3. [n~m] 공유 지문 패턴 감지
-  const sharedMarkerRe = /\[\d+[번]?\s*[~\-]\s*\d+[번]?\]\s*[^\n]*/;
+  // 주의: \s*[^\n]* → [^\n]* 로 변경.
+  // \s*가 줄바꿈(\n)까지 매칭하여 다음 줄의 [지문] 태그를 삼키는 버그 수정
+  const sharedMarkerRe = /\[\d+[번]?\s*[~\-]\s*\d+[번]?\][^\n]*/;
   const sharedMatch = processed.match(sharedMarkerRe);
 
   let sharedHeader = '';

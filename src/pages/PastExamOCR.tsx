@@ -536,39 +536,57 @@ const AnalysisModal: React.FC<{
       const html2canvas = (await import('html2canvas-pro')).default;
       const jsPDF = (await import('jspdf')).default;
       const el = contentRef.current;
+
+      // 1) 스크롤 영역 전체 캡처를 위해 높이/overflow 제한 해제
       const origMaxHeight = el.style.maxHeight;
       const origOverflow = el.style.overflow;
       el.style.maxHeight = 'none';
       el.style.overflow = 'visible';
 
-      // 강제 page break 포인트 수집 (킬러문항 등)
+      // 2) 강제 page break 포인트 수집 (getBoundingClientRect 기반 — 정확한 위치)
       const scale = 2;
+      const containerRect = el.getBoundingClientRect();
       const breakMarkers = el.querySelectorAll('[data-page-break]');
-      const forcedBreaks: number[] = [];
+      const forcedBreaksPx: number[] = []; // scale 적용 전 CSS px
       for (const marker of breakMarkers) {
-        const markerEl = marker as HTMLElement;
-        const offsetY = markerEl.offsetTop;
-        forcedBreaks.push(offsetY * scale);
+        const markerRect = (marker as HTMLElement).getBoundingClientRect();
+        // container 상단 대비 상대 위치
+        const relativeY = markerRect.top - containerRect.top;
+        forcedBreaksPx.push(relativeY);
       }
+      forcedBreaksPx.sort((a, b) => a - b);
 
-      const canvas = await html2canvas(el, { scale, useCORS: true, backgroundColor: '#ffffff', logging: false });
+      // 3) html2canvas로 캡처
+      const canvas = await html2canvas(el, {
+        scale,
+        useCORS: true,
+        backgroundColor: '#ffffff',
+        logging: false,
+      });
+
+      // 4) 스타일 복원
       el.style.maxHeight = origMaxHeight;
       el.style.overflow = origOverflow;
 
-      const imgWidth = canvas.width;
+      // 5) canvas → PDF 변환
+      const imgWidth = canvas.width;   // px (scale 적용됨)
       const imgHeight = canvas.height;
-      const pdfWidth = 210;
+      const pdfWidth = 210;  // A4 mm
       const pdfMargin = 15;
       const contentWidth = pdfWidth - pdfMargin * 2;
-      const contentHeight = (imgHeight * contentWidth) / imgWidth;
-      const pageHeight = 297 - pdfMargin * 2;
+      const contentMmHeight = (imgHeight * contentWidth) / imgWidth;
+      const pageHeight = 297 - pdfMargin * 2; // mm
       const pdf = new jsPDF('p', 'mm', 'a4');
 
-      if (contentHeight <= pageHeight - 10) {
+      // canvas px → break 포인트 (scale 적용)
+      const forcedBreaks = forcedBreaksPx.map(y => Math.round(y * scale));
+
+      if (contentMmHeight <= pageHeight - 10) {
+        // 한 페이지에 모두 들어감
         const imgData = canvas.toDataURL('image/png');
-        pdf.addImage(imgData, 'PNG', pdfMargin, pdfMargin, contentWidth, contentHeight);
+        pdf.addImage(imgData, 'PNG', pdfMargin, pdfMargin, contentWidth, contentMmHeight);
       } else {
-        // 최대 슬라이스 높이(px)
+        // 여러 페이지 — 강제 break 포인트를 반영하여 슬라이스
         const maxSlicePx = (pageHeight / contentWidth) * imgWidth;
         let sourceY = 0;
         let page = 0;
@@ -576,35 +594,42 @@ const AnalysisModal: React.FC<{
         while (sourceY < imgHeight) {
           if (page > 0) pdf.addPage();
 
-          // 기본 슬라이스: 남은 높이 vs 최대 페이지 높이
+          // 기본 슬라이스 높이
           let sliceH = Math.min(maxSlicePx, imgHeight - sourceY);
 
-          // 강제 break 포인트 확인: 현재 슬라이스 범위 안에 break 포인트가 있으면 거기서 끊기
+          // 이 슬라이스 범위 안에 강제 break가 있으면 거기서 끊기
           for (const bp of forcedBreaks) {
-            if (bp > sourceY && bp < sourceY + sliceH) {
-              // break 포인트가 현재 페이지 시작에서 너무 가까우면(10% 미만) 무시
-              const distFromTop = bp - sourceY;
-              if (distFromTop > maxSlicePx * 0.1) {
-                sliceH = distFromTop;
-              }
-              break;
+            if (bp <= sourceY) continue;             // 이미 지난 break
+            if (bp >= sourceY + sliceH) break;       // 이 페이지 범위 밖
+            // break가 이 슬라이스 안에 있음
+            const dist = bp - sourceY;
+            // 너무 가까우면(5% 미만) 무시 — 여백만 남을 수 있음
+            if (dist > maxSlicePx * 0.05) {
+              sliceH = dist;
             }
+            break;
           }
 
           const sliceHeightMm = (sliceH * contentWidth) / imgWidth;
           const sliceCanvas = document.createElement('canvas');
           sliceCanvas.width = imgWidth;
-          sliceCanvas.height = sliceH;
+          sliceCanvas.height = Math.ceil(sliceH);
           const ctx = sliceCanvas.getContext('2d');
           if (ctx) {
-            ctx.drawImage(canvas, 0, sourceY, imgWidth, sliceH, 0, 0, imgWidth, sliceH);
+            ctx.drawImage(
+              canvas,
+              0, Math.floor(sourceY), imgWidth, Math.ceil(sliceH),
+              0, 0, imgWidth, Math.ceil(sliceH),
+            );
             const sliceData = sliceCanvas.toDataURL('image/png');
             pdf.addImage(sliceData, 'PNG', pdfMargin, pdfMargin, contentWidth, sliceHeightMm);
           }
+
           sourceY += sliceH;
           page++;
         }
       }
+
       pdf.save(`${examName || '시험분석'}_분석결과.pdf`);
     } catch (err) {
       console.error('PDF 생성 실패:', err);

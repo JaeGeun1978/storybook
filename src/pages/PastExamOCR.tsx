@@ -389,7 +389,7 @@ const QuestionCard: React.FC<{
             ref={textareaRef}
             value={question.text}
             onChange={(e) => onUpdate(e.target.value)}
-            className="w-full min-h-[200px] p-3 text-sm font-mono leading-relaxed rounded-lg bg-dark border border-white/10 text-slate-200 resize-y
+            className="w-full min-h-[200px] p-3 text-sm font-mono leading-relaxed rounded-lg bg-dark border border-white/10 text-slate-200 caret-white resize-y
               focus:outline-none focus:ring-1 focus:ring-primary-500/50"
           />
         ) : (
@@ -826,7 +826,7 @@ const ReviewPanel: React.FC<{
           value={editText}
           onChange={handleTextChange}
           className="w-full flex-1 p-6 text-sm font-mono leading-relaxed rounded-xl
-            border border-white/10 bg-surface text-slate-200 resize-none
+            border border-white/10 bg-surface text-slate-200 caret-white resize-none
             focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-transparent"
           placeholder="[문제] 문제 내용..."
         />

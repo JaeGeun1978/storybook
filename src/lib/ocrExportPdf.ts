@@ -369,6 +369,77 @@ function parseSingleSection(text: string): SubQuestion {
 }
 
 /* ═══════════════════════════════════════════════════════
+   지문(passage) 텍스트 평탄화 (Flatten)
+
+   OCR이 만든 불필요한 줄바꿈을 제거하여 자연스러운 문단으로 만든다.
+   단, 구조적 의미가 있는 줄바꿈은 보존한다.
+
+   ── 평탄화 규칙 ──
+   일반 텍스트 줄: 줄바꿈 제거 → 공백으로 이어붙임
+   빈 줄(단락 구분): 보존
+
+   ── 예외 (줄바꿈 보존) ──
+   (A), (B), (C) … 등 영문 순서 표시 앞에서 줄바꿈
+   (가), (나), (다) … 등 한글 순서 표시 앞에서 줄바꿈
+   ⓐ ⓑ ⓒ … 원문자 알파벳 앞에서 줄바꿈
+   ㉠ ㉡ ㉢ … 원문자 한글 앞에서 줄바꿈
+   ① ② ③ … 원문자 숫자(선택지) 앞에서 줄바꿈
+   ─ · • 등 리스트 아이템 앞에서 줄바꿈
+   1) 2) 3) 등 번호 목록 앞에서 줄바꿈
+   ═══════════════════════════════════════════════════════ */
+
+/** 해당 줄이 "줄바꿈 보존" 패턴으로 시작하는지 판별 */
+const BREAK_BEFORE_PATTERNS: RegExp[] = [
+  /^\s*\([A-Za-z]\)/,           // (A), (B), (a), (b)…
+  /^\s*\([가-힣]\)/,            // (가), (나), (다)…
+  /^\s*[ⓐⓑⓒⓓⓔⓕⓖⓗⓘⓙ]/,  // 원문자 알파벳
+  /^\s*[㉠㉡㉢㉣㉤]/,          // 원문자 한글
+  /^\s*[①②③④⑤⑥⑦⑧⑨⑩]/,  // 원문자 숫자 (선택지)
+  /^\s*[-─·•]\s/,               // 리스트 아이템
+  /^\s*\d+[.)]\s/,              // 번호 목록 (1. 2) 등)
+];
+
+function flattenPassage(text: string): string {
+  if (!text.trim()) return text;
+
+  const lines = text.split('\n');
+  const result: string[] = [];
+  let paragraph = '';
+
+  const flushParagraph = () => {
+    if (paragraph) {
+      result.push(paragraph);
+      paragraph = '';
+    }
+  };
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+
+    // 빈 줄 → 단락 구분 보존
+    if (!trimmed) {
+      flushParagraph();
+      result.push(''); // 빈 줄 유지
+      continue;
+    }
+
+    // 줄바꿈 보존 패턴 확인
+    const needsBreak = BREAK_BEFORE_PATTERNS.some((p) => p.test(trimmed));
+
+    if (needsBreak) {
+      flushParagraph();
+      paragraph = trimmed; // 새 문단 시작
+    } else {
+      // 일반 텍스트: 이전 줄에 공백으로 이어붙임 (평탄화)
+      paragraph = paragraph ? paragraph + ' ' + trimmed : trimmed;
+    }
+  }
+  flushParagraph();
+
+  return result.join('\n');
+}
+
+/* ═══════════════════════════════════════════════════════
    지문(passage) HTML 렌더링
    가이드라인: .passage (테두리 + 연한 배경)
               .shaded-box (<table> 태그 OCR 컨텐츠)
@@ -384,7 +455,7 @@ function renderPassage(passage: string): string {
     const trimmed = seg.trim();
     if (!trimmed) continue;
 
-    // <table> 태그 → 회색 박스 (.shaded-box) — 가이드라인 규칙
+    // <table> 태그 → 회색 박스 (.shaded-box) — 가이드라인 규칙 (평탄화 미적용)
     const tblMatch = trimmed.match(/<table[^>]*>([\s\S]*?)<\/table>/i);
     if (tblMatch) {
       const content = tblMatch[1].trim();
@@ -396,8 +467,9 @@ function renderPassage(passage: string): string {
       continue;
     }
 
-    // 일반 지문 → .passage 박스 (테두리 + 연한 배경)
-    const lines = trimmed.split('\n').filter(Boolean);
+    // 일반 지문 → 평탄화 적용 후 .passage 박스 렌더링
+    const flattened = flattenPassage(trimmed);
+    const lines = flattened.split('\n').filter(Boolean);
     if (lines.length > 0) {
       parts.push(`<div class="passage">${fmtLines(lines)}</div>`);
     }

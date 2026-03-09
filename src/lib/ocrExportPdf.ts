@@ -926,8 +926,8 @@ export interface PdfExportOptions {
 
 export const DEFAULT_PDF_OPTIONS: PdfExportOptions = {
   showPageNumbers: true,
-  includeAnswers: false,
-  twoColumns: false,
+  includeAnswers: true,
+  twoColumns: true,
 };
 
 /**

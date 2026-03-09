@@ -331,7 +331,11 @@ const QuestionCard: React.FC<{
   onDelete: () => void;
   onGetAnswer: () => void;
   isLoadingAnswer: boolean;
-}> = ({ question, isEditing, onEdit, onUpdate, onDelete, onGetAnswer, isLoadingAnswer }) => {
+  onDragStart: (e: React.DragEvent, index: number) => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent, index: number) => void;
+  onDragEnd: (e: React.DragEvent) => void;
+}> = ({ question, index, isEditing, onEdit, onUpdate, onDelete, onGetAnswer, isLoadingAnswer, onDragStart, onDragOver, onDrop, onDragEnd }) => {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -352,12 +356,19 @@ const QuestionCard: React.FC<{
   }
 
   return (
-    <div className={`rounded-xl bg-surface border transition-all duration-200 ${
-      isEditing ? 'border-primary-500/30 ring-1 ring-primary-500/20' : 'border-white/5 hover:border-white/10'
-    }`}>
+    <div
+      draggable
+      onDragStart={(e) => onDragStart(e, index)}
+      onDragOver={onDragOver}
+      onDrop={(e) => onDrop(e, index)}
+      onDragEnd={onDragEnd}
+      className={`rounded-xl bg-surface border transition-all duration-200 ${
+        isEditing ? 'border-primary-500/30 ring-1 ring-primary-500/20' : 'border-white/5 hover:border-white/10'
+      }`}
+    >
       <div className="flex items-center justify-between px-4 py-2 border-b border-white/5">
         <div className="flex items-center gap-2">
-          <GripVertical size={14} className="text-slate-600" />
+          <GripVertical size={14} className="text-slate-600 cursor-grab active:cursor-grabbing" />
           <span className="text-xs font-bold text-primary-400">#{question.number}</span>
         </div>
         <div className="flex items-center gap-1">
@@ -403,8 +414,108 @@ const QuestionCard: React.FC<{
 };
 
 // ═══════════════════════════════════════
-//  분석 모달
+//  분석 모달 (원본 밝은 테마 + 전체 기능)
 // ═══════════════════════════════════════
+const difficultyColor = (d: string) => {
+  if (d.includes('상')) return 'text-red-600 bg-red-50';
+  if (d.includes('하')) return 'text-green-600 bg-green-50';
+  return 'text-yellow-600 bg-yellow-50';
+};
+
+function toArray(val: unknown): string[] {
+  if (Array.isArray(val)) return val.map(String);
+  if (typeof val === 'string') return val.split(/[,\s]+/).filter(Boolean);
+  if (val != null) return [String(val)];
+  return [];
+}
+
+function toMarkdown(data: AnalysisResult, examName: string): string {
+  const lines: string[] = [];
+  lines.push(`# ${examName} 시험 분석`);
+  lines.push('');
+  lines.push('## 종합 총평');
+  lines.push(`- **총 문항:** ${data.summary.total_questions}문제`);
+  lines.push(`- **전체 난이도:** ${data.summary.overall_difficulty}`);
+  lines.push('');
+  lines.push(data.summary.trend_analysis);
+  lines.push('');
+  lines.push('## 유형별 분류');
+  lines.push('| 유형 | 문항수 | 난이도 | 문항 번호 |');
+  lines.push('|------|--------|--------|-----------|');
+  for (const t of data.type_classification) {
+    lines.push(`| ${t.type} | ${t.count} | ${t.difficulty_avg} | ${toArray(t.question_numbers).join(', ')} |`);
+  }
+  lines.push('');
+  const total = data.summary.total_questions || 1;
+  lines.push('## 난이도 분포');
+  lines.push(`- **상:** ${data.difficulty_distribution.high}문제 (${Math.round((data.difficulty_distribution.high / total) * 100)}%)`);
+  lines.push(`- **중:** ${data.difficulty_distribution.mid}문제 (${Math.round((data.difficulty_distribution.mid / total) * 100)}%)`);
+  lines.push(`- **하:** ${data.difficulty_distribution.low}문제 (${Math.round((data.difficulty_distribution.low / total) * 100)}%)`);
+  lines.push('');
+  if (data.killer_questions.length > 0) {
+    lines.push('## 킬러문항');
+    for (const kq of data.killer_questions) {
+      lines.push(`### ${kq.q_number}번 (${kq.type})`);
+      lines.push(`- **이유:** ${kq.reason}`);
+      lines.push(`- **전략:** ${kq.strategy}`);
+      lines.push('');
+    }
+  }
+  if (data.study_plan.length > 0) {
+    lines.push('## 학습 계획');
+    for (const sp of data.study_plan) {
+      lines.push(`### ${sp.priority}. ${sp.area}`);
+      lines.push(sp.content);
+      const types = toArray(sp.target_types);
+      if (types.length > 0) lines.push(`- 관련 유형: ${types.join(', ')}`);
+      lines.push('');
+    }
+  }
+  return lines.join('\n');
+}
+
+function toPlainText(data: AnalysisResult, examName: string): string {
+  const lines: string[] = [];
+  lines.push(`[ ${examName} 시험 분석 ]`);
+  lines.push('');
+  lines.push(`[종합 총평]`);
+  lines.push(`총 문항: ${data.summary.total_questions}문제`);
+  lines.push(`전체 난이도: ${data.summary.overall_difficulty}`);
+  lines.push(data.summary.trend_analysis);
+  lines.push('');
+  lines.push(`[유형별 분류]`);
+  for (const t of data.type_classification) {
+    lines.push(`  ${t.type}: ${t.count}문제 (난이도 ${t.difficulty_avg}) - ${toArray(t.question_numbers).join(', ')}번`);
+  }
+  lines.push('');
+  const total = data.summary.total_questions || 1;
+  lines.push(`[난이도 분포]`);
+  lines.push(`  상: ${data.difficulty_distribution.high}문제 (${Math.round((data.difficulty_distribution.high / total) * 100)}%)`);
+  lines.push(`  중: ${data.difficulty_distribution.mid}문제 (${Math.round((data.difficulty_distribution.mid / total) * 100)}%)`);
+  lines.push(`  하: ${data.difficulty_distribution.low}문제 (${Math.round((data.difficulty_distribution.low / total) * 100)}%)`);
+  lines.push('');
+  if (data.killer_questions.length > 0) {
+    lines.push(`[킬러문항]`);
+    for (const kq of data.killer_questions) {
+      lines.push(`  ${kq.q_number}번 (${kq.type})`);
+      lines.push(`    이유: ${kq.reason}`);
+      lines.push(`    전략: ${kq.strategy}`);
+    }
+    lines.push('');
+  }
+  if (data.study_plan.length > 0) {
+    lines.push(`[학습 계획]`);
+    for (const sp of data.study_plan) {
+      lines.push(`  ${sp.priority}. ${sp.area}`);
+      lines.push(`    ${sp.content}`);
+      const types = toArray(sp.target_types);
+      if (types.length > 0) lines.push(`    관련 유형: ${types.join(', ')}`);
+    }
+    lines.push('');
+  }
+  return lines.join('\n');
+}
+
 const AnalysisModal: React.FC<{
   isOpen: boolean;
   onClose: () => void;
@@ -412,126 +523,295 @@ const AnalysisModal: React.FC<{
   examName: string;
   isLoading: boolean;
 }> = ({ isOpen, onClose, data, examName, isLoading }) => {
+  const [copyStatus, setCopyStatus] = useState<string | null>(null);
+  const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  const contentRef = useRef<HTMLDivElement>(null);
+
   if (!isOpen) return null;
 
+  const handleSavePdf = async () => {
+    if (!data || !contentRef.current) return;
+    setIsPdfGenerating(true);
+    try {
+      const html2canvas = (await import('html2canvas-pro')).default;
+      const jsPDF = (await import('jspdf')).default;
+      const el = contentRef.current;
+      const origMaxHeight = el.style.maxHeight;
+      const origOverflow = el.style.overflow;
+      el.style.maxHeight = 'none';
+      el.style.overflow = 'visible';
+      const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false });
+      el.style.maxHeight = origMaxHeight;
+      el.style.overflow = origOverflow;
+      const imgData = canvas.toDataURL('image/png');
+      const imgWidth = canvas.width;
+      const imgHeight = canvas.height;
+      const pdfWidth = 210;
+      const pdfMargin = 15;
+      const contentWidth = pdfWidth - pdfMargin * 2;
+      const contentHeight = (imgHeight * contentWidth) / imgWidth;
+      const pageHeight = 297 - pdfMargin * 2;
+      const pdf = new jsPDF('p', 'mm', 'a4');
+      if (contentHeight <= pageHeight - 10) {
+        pdf.addImage(imgData, 'PNG', pdfMargin, pdfMargin, contentWidth, contentHeight);
+      } else {
+        let remainingHeight = imgHeight;
+        let sourceY = 0;
+        let page = 0;
+        while (remainingHeight > 0) {
+          if (page > 0) pdf.addPage();
+          const availablePageHeight = pageHeight;
+          const sliceHeightInPx = (availablePageHeight / contentWidth) * imgWidth;
+          const actualSlice = Math.min(sliceHeightInPx, remainingHeight);
+          const sliceHeightMm = (actualSlice * contentWidth) / imgWidth;
+          const sliceCanvas = document.createElement('canvas');
+          sliceCanvas.width = imgWidth;
+          sliceCanvas.height = actualSlice;
+          const ctx = sliceCanvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(canvas, 0, sourceY, imgWidth, actualSlice, 0, 0, imgWidth, actualSlice);
+            const sliceData = sliceCanvas.toDataURL('image/png');
+            pdf.addImage(sliceData, 'PNG', pdfMargin, pdfMargin, contentWidth, sliceHeightMm);
+          }
+          sourceY += actualSlice;
+          remainingHeight -= actualSlice;
+          page++;
+        }
+      }
+      pdf.save(`${examName || '시험분석'}_분석결과.pdf`);
+    } catch (err) {
+      console.error('PDF 생성 실패:', err);
+      alert('PDF 생성 중 오류가 발생했습니다.');
+    } finally {
+      setIsPdfGenerating(false);
+    }
+  };
+
+  const handleSaveJson = () => {
+    if (!data) return;
+    const dataWithName = {
+      ...data,
+      summary: { ...data.summary, exam_name: examName || data.summary.exam_name || '시험' },
+    };
+    const jsonStr = JSON.stringify(dataWithName, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${examName || '시험분석'}_분석결과.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleCopy = async (format: 'markdown' | 'text') => {
+    if (!data) return;
+    const content = format === 'markdown'
+      ? toMarkdown(data, examName)
+      : toPlainText(data, examName);
+    await navigator.clipboard.writeText(content);
+    setCopyStatus(format === 'markdown' ? '마크다운 복사됨!' : '텍스트 복사됨!');
+    setTimeout(() => setCopyStatus(null), 2000);
+  };
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-      <div className="relative w-full max-w-3xl max-h-[85vh] mx-4 rounded-2xl bg-surface border border-white/10 shadow-2xl overflow-hidden flex flex-col">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-white/5">
-          <div className="flex items-center gap-3">
-            <BarChart3 size={20} className="text-primary-400" />
-            <h3 className="text-lg font-bold text-white">{examName} 분석</h3>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+      <div className="bg-white rounded-2xl shadow-2xl w-[720px] max-h-[85vh] flex flex-col">
+        {/* 헤더 */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-200 flex-shrink-0">
+          <div>
+            <h2 className="text-lg font-bold text-gray-800">시험지 분석 결과</h2>
+            {examName && <p className="text-xs text-gray-500 mt-0.5">{examName}</p>}
           </div>
-          <button onClick={onClose} className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10">
+          <button onClick={onClose} className="p-1 text-gray-400 hover:text-gray-600 rounded-lg hover:bg-gray-100">
             <X size={18} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto p-6">
-          {isLoading ? (
+
+        {/* 본문 */}
+        <div ref={contentRef} className="flex-1 overflow-y-auto px-6 py-4 space-y-6">
+          {isLoading && (
             <div className="flex flex-col items-center justify-center py-16 gap-3">
-              <Loader2 size={32} className="animate-spin text-primary-400" />
-              <p className="text-sm text-slate-400">AI가 시험지를 분석하고 있습니다...</p>
+              <Loader2 size={32} className="animate-spin text-blue-600" />
+              <p className="text-sm text-gray-500">Gemini가 시험지를 분석하고 있습니다...</p>
             </div>
-          ) : data ? (
-            <div className="space-y-6">
-              {/* 요약 */}
-              <div className="rounded-xl bg-dark/50 p-5">
-                <h4 className="text-sm font-bold text-white mb-2">📊 전체 요약</h4>
-                <div className="grid grid-cols-3 gap-4 mb-3">
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-primary-400">{data.summary.total_questions}</div>
-                    <div className="text-[10px] text-slate-500">총 문항</div>
+          )}
+          {!isLoading && !data && (
+            <div className="text-center py-16 text-gray-400">
+              <p>분석 결과가 없습니다.</p>
+            </div>
+          )}
+          {!isLoading && data && (
+            <>
+              {/* 종합 총평 */}
+              <section>
+                <h3 className="text-base font-bold text-gray-700 mb-3 flex items-center gap-2">
+                  <span className="w-1.5 h-5 bg-blue-600 rounded-full inline-block" />
+                  종합 총평
+                </h3>
+                <div className="bg-blue-50 rounded-xl p-4 space-y-2">
+                  <div className="flex items-center gap-4 text-sm">
+                    <span className="text-gray-600">총 문항: <span className="font-bold text-blue-700">{data.summary.total_questions}문제</span></span>
+                    <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${difficultyColor(data.summary.overall_difficulty)}`}>
+                      난이도: {data.summary.overall_difficulty}
+                    </span>
                   </div>
-                  <div className="text-center">
-                    <div className="text-2xl font-bold text-amber-400">{data.summary.overall_difficulty}</div>
-                    <div className="text-[10px] text-slate-500">전체 난이도</div>
-                  </div>
-                  <div className="text-center">
-                    <div className="text-lg font-bold text-emerald-400">
-                      {data.difficulty_distribution.high}:{data.difficulty_distribution.mid}:{data.difficulty_distribution.low}
-                    </div>
-                    <div className="text-[10px] text-slate-500">상:중:하</div>
-                  </div>
+                  <p className="text-sm text-gray-700 leading-relaxed">{data.summary.trend_analysis}</p>
                 </div>
-                <p className="text-xs text-slate-400 leading-relaxed">{data.summary.trend_analysis}</p>
-              </div>
+              </section>
 
               {/* 유형 분류 */}
-              <div>
-                <h4 className="text-sm font-bold text-white mb-3">📋 유형별 분류</h4>
-                <div className="grid gap-2">
-                  {data.type_classification.map((tc, i) => (
-                    <div key={i} className="flex items-center gap-3 rounded-lg bg-dark/30 px-4 py-2.5">
-                      <span className="text-xs font-bold text-slate-300 min-w-[120px]">{tc.type}</span>
-                      <span className="text-xs text-primary-400 font-medium">{tc.count}문항</span>
-                      <span className="text-[10px] text-slate-500">
-                        ({tc.question_numbers.join(', ')}번)
-                      </span>
-                      <span className="ml-auto text-[10px] text-slate-500">난이도: {tc.difficulty_avg}</span>
-                    </div>
-                  ))}
+              <section>
+                <h3 className="text-base font-bold text-gray-700 mb-3 flex items-center gap-2">
+                  <span className="w-1.5 h-5 bg-purple-600 rounded-full inline-block" />
+                  유형별 분류
+                </h3>
+                <div className="overflow-hidden rounded-xl border border-gray-200">
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        <th className="text-left px-4 py-2 font-medium text-gray-600">유형</th>
+                        <th className="text-center px-4 py-2 font-medium text-gray-600">문항수</th>
+                        <th className="text-center px-4 py-2 font-medium text-gray-600">난이도</th>
+                        <th className="text-left px-4 py-2 font-medium text-gray-600">문항 번호</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {data.type_classification.map((t, i) => (
+                        <tr key={i} className="hover:bg-gray-50">
+                          <td className="px-4 py-2 font-medium text-gray-800">{t.type}</td>
+                          <td className="px-4 py-2 text-center text-gray-600">{t.count}</td>
+                          <td className="px-4 py-2 text-center">
+                            <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${difficultyColor(t.difficulty_avg)}`}>
+                              {t.difficulty_avg}
+                            </span>
+                          </td>
+                          <td className="px-4 py-2 text-gray-500 text-xs">
+                            {toArray(t.question_numbers).join(', ')}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 </div>
-              </div>
+              </section>
 
-              {/* 킬러 문항 */}
-              {data.killer_questions.length > 0 && (
-                <div>
-                  <h4 className="text-sm font-bold text-white mb-3">🔥 킬러 문항</h4>
-                  <div className="space-y-2">
-                    {data.killer_questions.map((kq, i) => (
-                      <div key={i} className="rounded-lg bg-red-500/5 border border-red-500/10 p-4">
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-xs font-bold text-red-400">{kq.q_number}번</span>
-                          <span className="text-[10px] text-slate-500">{kq.type}</span>
+              {/* 난이도 분포 */}
+              <section>
+                <h3 className="text-base font-bold text-gray-700 mb-3 flex items-center gap-2">
+                  <span className="w-1.5 h-5 bg-yellow-500 rounded-full inline-block" />
+                  난이도 분포
+                </h3>
+                <div className="flex items-center gap-4">
+                  {[
+                    { label: '상', count: data.difficulty_distribution.high, color: 'bg-red-500' },
+                    { label: '중', count: data.difficulty_distribution.mid, color: 'bg-yellow-500' },
+                    { label: '하', count: data.difficulty_distribution.low, color: 'bg-green-500' },
+                  ].map((d) => {
+                    const tot = data.summary.total_questions || 1;
+                    const pct = Math.round((d.count / tot) * 100);
+                    return (
+                      <div key={d.label} className="flex-1">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-sm font-medium text-gray-700">{d.label}</span>
+                          <span className="text-xs text-gray-500">{d.count}문제 ({pct}%)</span>
                         </div>
-                        <p className="text-xs text-slate-400 mb-1">{kq.reason}</p>
-                        <p className="text-xs text-emerald-400">💡 {kq.strategy}</p>
+                        <div className="w-full bg-gray-200 rounded-full h-3">
+                          <div className={`${d.color} rounded-full h-3 transition-all`} style={{ width: `${pct}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+
+              {/* 킬러문항 */}
+              {data.killer_questions.length > 0 && (
+                <section>
+                  <h3 className="text-base font-bold text-gray-700 mb-3 flex items-center gap-2">
+                    <span className="w-1.5 h-5 bg-red-600 rounded-full inline-block" />
+                    킬러문항
+                  </h3>
+                  <div className="space-y-3">
+                    {data.killer_questions.map((kq, i) => (
+                      <div key={i} className="bg-red-50 rounded-xl p-4 border border-red-100">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="px-2 py-0.5 bg-red-600 text-white text-xs font-bold rounded-full">{kq.q_number}번</span>
+                          <span className="text-xs text-red-600 font-medium">{kq.type}</span>
+                        </div>
+                        <p className="text-sm text-gray-700 mb-1"><span className="font-medium text-gray-800">이유:</span> {kq.reason}</p>
+                        <p className="text-sm text-gray-700"><span className="font-medium text-gray-800">전략:</span> {kq.strategy}</p>
                       </div>
                     ))}
                   </div>
-                </div>
+                </section>
               )}
 
               {/* 학습 계획 */}
-              <div>
-                <h4 className="text-sm font-bold text-white mb-3">📚 학습 계획</h4>
-                <div className="space-y-2">
-                  {data.study_plan.map((sp, i) => (
-                    <div key={i} className="rounded-lg bg-dark/30 p-4">
-                      <div className="flex items-center gap-2 mb-1">
-                        <span className="w-6 h-6 rounded-full bg-primary-500/20 text-primary-400 flex items-center justify-center text-xs font-bold">
+              {data.study_plan.length > 0 && (
+                <section>
+                  <h3 className="text-base font-bold text-gray-700 mb-3 flex items-center gap-2">
+                    <span className="w-1.5 h-5 bg-green-600 rounded-full inline-block" />
+                    학습 계획
+                  </h3>
+                  <div className="space-y-3">
+                    {data.study_plan.map((sp, i) => (
+                      <div key={i} className="flex gap-3 bg-green-50 rounded-xl p-4 border border-green-100">
+                        <div className="flex-shrink-0 w-8 h-8 bg-green-600 text-white rounded-full flex items-center justify-center text-sm font-bold">
                           {sp.priority}
-                        </span>
-                        <span className="text-xs font-bold text-white">{sp.area}</span>
+                        </div>
+                        <div className="flex-1">
+                          <p className="text-sm font-bold text-gray-800 mb-1">{sp.area}</p>
+                          <p className="text-sm text-gray-700 leading-relaxed">{sp.content}</p>
+                          <div className="flex flex-wrap gap-1 mt-2">
+                            {toArray(sp.target_types).map((t, j) => (
+                              <span key={j} className="px-2 py-0.5 bg-green-200 text-green-800 text-xs rounded-full">{t}</span>
+                            ))}
+                          </div>
+                        </div>
                       </div>
-                      <p className="text-xs text-slate-400 ml-8">{sp.content}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* 분석 결과 저장 */}
-              <div className="flex justify-end">
-                <button
-                  onClick={() => {
-                    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                    const url = URL.createObjectURL(blob);
-                    const a = document.createElement('a');
-                    a.href = url;
-                    a.download = `${examName}_분석결과.json`;
-                    a.click();
-                    URL.revokeObjectURL(url);
-                  }}
-                  className="px-4 py-2 text-xs font-medium rounded-lg bg-primary-500/10 text-primary-400 hover:bg-primary-500/20"
-                >
-                  <Download size={14} className="inline mr-1" />
-                  분석 결과 저장
-                </button>
-              </div>
-            </div>
-          ) : (
-            <p className="text-center text-sm text-slate-500 py-16">분석 데이터가 없습니다.</p>
+                    ))}
+                  </div>
+                </section>
+              )}
+            </>
           )}
+        </div>
+
+        {/* 하단 */}
+        <div className="flex items-center justify-between px-6 py-3 border-t border-gray-200 flex-shrink-0">
+          <div className="flex items-center gap-2">
+            {data && (
+              <>
+                <button onClick={handleSaveJson}
+                  className="px-3 py-1.5 text-sm bg-indigo-50 text-indigo-700 rounded-lg hover:bg-indigo-100">
+                  JSON 저장
+                </button>
+                <button onClick={() => handleCopy('markdown')}
+                  className="px-3 py-1.5 text-sm bg-purple-50 text-purple-700 rounded-lg hover:bg-purple-100">
+                  마크다운 복사
+                </button>
+                <button onClick={() => handleCopy('text')}
+                  className="px-3 py-1.5 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">
+                  텍스트 복사
+                </button>
+                <button onClick={handleSavePdf} disabled={isPdfGenerating}
+                  className="px-3 py-1.5 text-sm bg-rose-50 text-rose-700 rounded-lg hover:bg-rose-100 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1">
+                  {isPdfGenerating ? (
+                    <><Loader2 size={14} className="animate-spin" /> 생성중...</>
+                  ) : 'PDF 저장'}
+                </button>
+                {copyStatus && (
+                  <span className="text-xs text-green-600 font-medium">{copyStatus}</span>
+                )}
+              </>
+            )}
+          </div>
+          <button onClick={onClose}
+            className="px-4 py-2 text-sm bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200">
+            닫기
+          </button>
         </div>
       </div>
     </div>
@@ -842,7 +1122,7 @@ export const PastExamOCRPage: React.FC = () => {
   // 스토어
   const {
     questions, addQuestion, addPlaceholders, updateQuestion, deleteQuestion,
-    setQuestions, mergeQuestions, markSaved, deleteAllQuestions,
+    setQuestions, mergeQuestions, markSaved, deleteAllQuestions, reorderQuestions,
   } = useOcrStore();
 
   // UI 상태
@@ -858,6 +1138,53 @@ export const PastExamOCRPage: React.FC = () => {
 
   // 이미지 큐
   const [queuedImages, setQueuedImages] = useState<{ dataUrl: string; name: string }[]>([]);
+
+  // 드래그앤드롭
+  const dragIndexRef = useRef<number | null>(null);
+  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
+
+  const handleDragStart = useCallback((e: React.DragEvent, index: number) => {
+    dragIndexRef.current = index;
+    e.dataTransfer.effectAllowed = 'move';
+    // 드래그 시작 시 약간 투명하게
+    const el = e.currentTarget as HTMLElement;
+    requestAnimationFrame(() => { el.style.opacity = '0.4'; });
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+  }, []);
+
+  const handleDragEnter = useCallback((_e: React.DragEvent, index: number) => {
+    setDragOverIndex(index);
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent, toIndex: number) => {
+    e.preventDefault();
+    const fromIndex = dragIndexRef.current;
+    if (fromIndex !== null && fromIndex !== toIndex) {
+      reorderQuestions(fromIndex, toIndex);
+      // 편집 중인 인덱스도 조정
+      if (editingIndex !== null) {
+        if (editingIndex === fromIndex) {
+          setEditingIndex(toIndex);
+        } else if (fromIndex < editingIndex && toIndex >= editingIndex) {
+          setEditingIndex(editingIndex - 1);
+        } else if (fromIndex > editingIndex && toIndex <= editingIndex) {
+          setEditingIndex(editingIndex + 1);
+        }
+      }
+    }
+    dragIndexRef.current = null;
+    setDragOverIndex(null);
+  }, [reorderQuestions, editingIndex]);
+
+  const handleDragEnd = useCallback((e: React.DragEvent) => {
+    (e.currentTarget as HTMLElement).style.opacity = '1';
+    dragIndexRef.current = null;
+    setDragOverIndex(null);
+  }, []);
 
   // 분석 모달
   const [isAnalysisOpen, setIsAnalysisOpen] = useState(false);
@@ -1070,6 +1397,35 @@ export const PastExamOCRPage: React.FC = () => {
     input.click();
   }, []);
 
+  // ─── 분석 불러오기 (이전에 저장한 분석 JSON 로드) ───
+  const handleLoadAnalysis = useCallback(() => {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.json';
+    input.onchange = async (e) => {
+      const file = (e.target as HTMLInputElement).files?.[0];
+      if (!file) return;
+      try {
+        const text = await file.text();
+        const parsed = JSON.parse(text) as AnalysisResult;
+        if (!parsed.summary || typeof parsed.summary.total_questions !== 'number') {
+          alert('유효한 시험지 분석 JSON 파일이 아닙니다.');
+          return;
+        }
+        const name = parsed.summary.exam_name
+          || file.name.replace(/_분석결과\.json$/i, '').replace(/\.json$/i, '')
+          || '시험';
+        setAnalysisData(parsed);
+        setAnalysisExamName(name);
+        setIsAnalysisOpen(true);
+        setIsAnalyzing(false);
+      } catch {
+        alert('JSON 파일을 파싱할 수 없습니다. 올바른 분석 결과 파일인지 확인해주세요.');
+      }
+    };
+    input.click();
+  }, []);
+
   // ─── 정답/해설 ───
   const handleGetAnswer = useCallback(async (index: number) => {
     const q = questions[index];
@@ -1247,6 +1603,10 @@ export const PastExamOCRPage: React.FC = () => {
               className="px-2.5 py-1.5 text-[10px] font-medium bg-violet-500/15 text-violet-400 rounded-lg hover:bg-violet-500/25">
               <BarChart3 size={12} className="inline mr-1" />시험지 분석
             </button>
+            <button onClick={handleLoadAnalysis}
+              className="px-2.5 py-1.5 text-[10px] font-medium bg-violet-500/10 text-violet-300 rounded-lg hover:bg-violet-500/20">
+              분석 불러오기
+            </button>
             <button onClick={handleImportJson}
               className="px-2.5 py-1.5 text-[10px] font-medium bg-white/5 text-slate-400 rounded-lg hover:bg-white/10">
               <FolderOpen size={12} className="inline mr-1" />JSON 가져오기
@@ -1328,22 +1688,35 @@ export const PastExamOCRPage: React.FC = () => {
               </div>
             ) : (
               questions.map((q, i) => (
-                <QuestionCard
+                <div
                   key={`${q.number}-${i}`}
-                  question={q}
-                  index={i}
-                  isEditing={editingIndex === i}
-                  onEdit={() => setEditingIndex(editingIndex === i ? null : i)}
-                  onUpdate={(text) => updateQuestion(i, { text })}
-                  onDelete={() => {
-                    if (confirm(`문제 #${q.number}을 삭제하시겠습니까?`)) {
-                      deleteQuestion(i);
-                      if (editingIndex === i) setEditingIndex(null);
-                    }
-                  }}
-                  onGetAnswer={() => handleGetAnswer(i)}
-                  isLoadingAnswer={loadingAnswerIndex === i}
-                />
+                  onDragEnter={(e) => handleDragEnter(e, i)}
+                  className={`transition-all duration-150 ${
+                    dragOverIndex === i && dragIndexRef.current !== i
+                      ? 'border-t-2 border-primary-400 pt-1'
+                      : ''
+                  }`}
+                >
+                  <QuestionCard
+                    question={q}
+                    index={i}
+                    isEditing={editingIndex === i}
+                    onEdit={() => setEditingIndex(editingIndex === i ? null : i)}
+                    onUpdate={(text) => updateQuestion(i, { text })}
+                    onDelete={() => {
+                      if (confirm(`문제 #${q.number}을 삭제하시겠습니까?`)) {
+                        deleteQuestion(i);
+                        if (editingIndex === i) setEditingIndex(null);
+                      }
+                    }}
+                    onGetAnswer={() => handleGetAnswer(i)}
+                    isLoadingAnswer={loadingAnswerIndex === i}
+                    onDragStart={handleDragStart}
+                    onDragOver={handleDragOver}
+                    onDrop={handleDrop}
+                    onDragEnd={handleDragEnd}
+                  />
+                </div>
               ))
             )}
           </div>

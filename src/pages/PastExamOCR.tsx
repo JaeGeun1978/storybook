@@ -13,7 +13,8 @@ import { useOcrStore, normalizeQuestionText, questionsToExportJson, importJsonTo
 import type { OcrQuestion } from '../lib/ocrStore';
 import { runOcr, getAnswerExplanation, analyzeExam } from '../lib/ocrGemini';
 import type { OcrMode } from '../lib/ocrGemini';
-import { exportAsPdf } from '../lib/ocrExportPdf';
+import { exportAsPdf, DEFAULT_PDF_OPTIONS } from '../lib/ocrExportPdf';
+import type { PdfExportOptions } from '../lib/ocrExportPdf';
 import { getSettings } from '../lib/store';
 
 // ─── 타입 ───
@@ -548,7 +549,8 @@ const ReviewPanel: React.FC<{
   isOpen: boolean;
   onClose: () => void;
   sessionName: string;
-}> = ({ isOpen, onClose, sessionName }) => {
+  pdfOptions?: PdfExportOptions;
+}> = ({ isOpen, onClose, sessionName, pdfOptions }) => {
   const { questions, updateQuestion, deleteQuestion, markSaved } = useOcrStore();
   const [currentIndex, setCurrentIndex] = useState(0);
   const [editText, setEditText] = useState('');
@@ -655,8 +657,8 @@ const ReviewPanel: React.FC<{
   // PDF 내보내기
   const handleExportPdf = useCallback(() => {
     if (questions.length === 0) return;
-    exportAsPdf(questions, sessionName || `exam_${new Date().toISOString().slice(0, 10)}`);
-  }, [questions, sessionName]);
+    exportAsPdf(questions, sessionName || `exam_${new Date().toISOString().slice(0, 10)}`, pdfOptions);
+  }, [questions, sessionName, pdfOptions]);
 
   // 원문자 삽입
   const insertChar = useCallback((char: string) => {
@@ -865,6 +867,9 @@ export const PastExamOCRPage: React.FC = () => {
 
   // 검수 패널
   const [isReviewOpen, setIsReviewOpen] = useState(false);
+
+  // PDF 내보내기 옵션
+  const [pdfOptions, setPdfOptions] = useState<PdfExportOptions>({ ...DEFAULT_PDF_OPTIONS });
 
   // API 키 확인
   const hasApiKey = !!getSettings().geminiApiKey;
@@ -1252,7 +1257,7 @@ export const PastExamOCRPage: React.FC = () => {
             </button>
             <button onClick={() => {
                 if (questions.length === 0) { alert('내보낼 문제가 없습니다.'); return; }
-                exportAsPdf(questions, sessionName || `exam_${new Date().toISOString().slice(0, 10)}`);
+                exportAsPdf(questions, sessionName || `exam_${new Date().toISOString().slice(0, 10)}`, pdfOptions);
               }}
               className="px-2.5 py-1.5 text-[10px] font-medium bg-emerald-500/15 text-emerald-400 rounded-lg hover:bg-emerald-500/25">
               <FileDown size={12} className="inline mr-1" />PDF 내보내기
@@ -1262,6 +1267,28 @@ export const PastExamOCRPage: React.FC = () => {
               className="px-2.5 py-1.5 text-[10px] font-medium bg-white/5 text-slate-600 rounded-lg opacity-40 cursor-not-allowed">
               HWP
             </button>
+          </div>
+          {/* 인쇄 옵션 체크박스 */}
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-1.5 border-b border-white/5 bg-surface/30">
+            <span className="text-[10px] text-slate-500 font-medium">인쇄옵션</span>
+            <label className="flex items-center gap-1 cursor-pointer select-none">
+              <input type="checkbox" checked={pdfOptions.showPageNumbers}
+                onChange={(e) => setPdfOptions(prev => ({ ...prev, showPageNumbers: e.target.checked }))}
+                className="w-3 h-3 rounded border-slate-600 bg-surface text-primary-500 focus:ring-primary-500/30 accent-primary-500" />
+              <span className="text-[10px] text-slate-400">페이지 표시</span>
+            </label>
+            <label className="flex items-center gap-1 cursor-pointer select-none">
+              <input type="checkbox" checked={pdfOptions.includeAnswers}
+                onChange={(e) => setPdfOptions(prev => ({ ...prev, includeAnswers: e.target.checked }))}
+                className="w-3 h-3 rounded border-slate-600 bg-surface text-primary-500 focus:ring-primary-500/30 accent-primary-500" />
+              <span className="text-[10px] text-slate-400">정답/해설</span>
+            </label>
+            <label className="flex items-center gap-1 cursor-pointer select-none">
+              <input type="checkbox" checked={pdfOptions.twoColumns}
+                onChange={(e) => setPdfOptions(prev => ({ ...prev, twoColumns: e.target.checked }))}
+                className="w-3 h-3 rounded border-slate-600 bg-surface text-primary-500 focus:ring-primary-500/30 accent-primary-500" />
+              <span className="text-[10px] text-slate-400">2단 레이아웃</span>
+            </label>
           </div>
           {/* 문제 목록 헤더 */}
           <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
@@ -1350,6 +1377,7 @@ export const PastExamOCRPage: React.FC = () => {
         isOpen={isReviewOpen}
         onClose={() => setIsReviewOpen(false)}
         sessionName={sessionName}
+        pdfOptions={pdfOptions}
       />
     </div>
   );

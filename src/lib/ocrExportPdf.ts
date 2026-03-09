@@ -490,7 +490,8 @@ function formatQuestionHtml(pq: ParsedQuestion, source: string): string {
    ═══════════════════════════════════════════════════════ */
 function generateExamHtml(
   questions: PreparedQuestion[],
-  examTitle: string
+  examTitle: string,
+  options: PdfExportOptions = DEFAULT_PDF_OPTIONS
 ): string {
   // ── 문제 섹션 ──
   const questionsHtml = questions
@@ -505,53 +506,82 @@ function generateExamHtml(
     })
     .join('\n');
 
-  // ── 빠른 정답 + 정답/해설 섹션 ──
-  // 복합 문제의 subAnswers를 평탄화하여 전체 정답 목록 생성
-  interface AnswerEntry { number: number; answer: string; explanation: string }
-  const allAnswers: AnswerEntry[] = [];
-  for (const q of questions) {
-    if (q.subAnswers && q.subAnswers.length > 0) {
-      // 복합 문제: 개별 sub-answers 사용
-      allAnswers.push(...q.subAnswers);
-    } else if (q.answer) {
-      // 단일 문제
-      allAnswers.push({ number: q.number, answer: q.answer, explanation: q.explanation });
+  // ── 빠른 정답 + 정답/해설 섹션 (옵션에 따라 포함) ──
+  let answersSection = '';
+
+  if (options.includeAnswers) {
+    // 복합 문제의 subAnswers를 평탄화하여 전체 정답 목록 생성
+    interface AnswerEntry { number: number; answer: string; explanation: string }
+    const allAnswers: AnswerEntry[] = [];
+    for (const q of questions) {
+      if (q.subAnswers && q.subAnswers.length > 0) {
+        allAnswers.push(...q.subAnswers);
+      } else if (q.answer) {
+        allAnswers.push({ number: q.number, answer: q.answer, explanation: q.explanation });
+      }
+    }
+
+    allAnswers.sort((a, b) => a.number - b.number);
+
+    if (allAnswers.length > 0) {
+      const quickAnswers = allAnswers
+        .filter((a) => a.answer)
+        .map((a) => `${a.number}) ${esc(a.answer)}`)
+        .join('\u2003\u2003');
+
+      const items = allAnswers
+        .filter((a) => a.answer || a.explanation)
+        .map((a) => {
+          const explHtml = a.explanation
+            ? `<div class="a-detail">${fmtLines(a.explanation.split('\n'))}</div>`
+            : '';
+          return `<div class="answer-item">
+          <div class="a-header">${a.number}) ${applyFormatting(a.answer)}</div>
+          ${explHtml}
+        </div>`;
+        })
+        .join('\n');
+
+      answersSection = `
+      <div class="page-break"></div>
+      <div class="section-title">정답 및 해설</div>
+      <div class="quick-answers">${quickAnswers}</div>
+      <div class="answers-content">${items}</div>`;
     }
   }
 
-  // 번호순 정렬
-  allAnswers.sort((a, b) => a.number - b.number);
-
-  const hasAnswers = allAnswers.length > 0;
-  let answersSection = '';
-
-  if (hasAnswers) {
-    // 빠른 정답 목록
-    const quickAnswers = allAnswers
-      .filter((a) => a.answer)
-      .map((a) => `${a.number}) ${esc(a.answer)}`)
-      .join('\u2003\u2003'); // em space × 2
-
-    // 상세 해설
-    const items = allAnswers
-      .filter((a) => a.answer || a.explanation)
-      .map((a) => {
-        const explHtml = a.explanation
-          ? `<div class="a-detail">${fmtLines(a.explanation.split('\n'))}</div>`
-          : '';
-        return `<div class="answer-item">
-        <div class="a-header">${a.number}) ${applyFormatting(a.answer)}</div>
-        ${explHtml}
-      </div>`;
-      })
-      .join('\n');
-
-    answersSection = `
-    <div class="page-break"></div>
-    <div class="section-title">정답 및 해설</div>
-    <div class="quick-answers">${quickAnswers}</div>
-    <div class="answers-content">${items}</div>`;
+  // ── 페이지 번호 CSS (옵션) ──
+  const pageNumberCss = options.showPageNumbers ? `
+@page {
+  @bottom-center {
+    content: "- " counter(page) " -";
+    font-size: 9pt;
+    font-family: '맑은 고딕', 'Malgun Gothic', sans-serif;
+    color: #555;
   }
+}
+/* 페이지 번호 fallback (CSS @page margin boxes 미지원 브라우저) */
+.page-number-footer {
+  display: none;
+}
+@media print {
+  .page-number-footer {
+    display: block;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    text-align: center;
+    font-size: 9pt;
+    color: #555;
+    padding-bottom: 2mm;
+  }
+}` : '';
+
+  // ── 2단 레이아웃 CSS (옵션) ──
+  const columnCss = options.twoColumns
+    ? `column-count: 2; column-gap: 20px; column-rule: 1px dashed #ccc;`
+    : '';
 
   return `<!DOCTYPE html>
 <html lang="ko">
@@ -560,8 +590,9 @@ function generateExamHtml(
 <title>${esc(examTitle)}</title>
 <style>
 /* ── 페이지 설정 ── */
-@page { size: A4; margin: 12mm 10mm; }
+@page { size: A4; margin: 12mm 10mm${options.showPageNumbers ? ' 18mm 10mm' : ''}; }
 * { margin: 0; padding: 0; box-sizing: border-box; }
+${pageNumberCss}
 
 body {
   font-family: '맑은 고딕', 'Malgun Gothic', 'Noto Sans KR', sans-serif;
@@ -581,11 +612,9 @@ body {
   border-bottom: 2px solid #000;
 }
 
-/* ── 2단 레이아웃 (가이드라인) ── */
+/* ── 레이아웃 ── */
 .questions-content {
-  column-count: 2;
-  column-gap: 20px;
-  column-rule: 1px dashed #ccc;
+  ${columnCss}
 }
 
 /* ── 문제 블록 ── */
@@ -674,8 +703,7 @@ body {
   border-radius: 4px;
 }
 .answers-content {
-  column-count: 2;
-  column-gap: 20px;
+  ${columnCss}
 }
 .answer-item {
   break-inside: avoid;
@@ -717,6 +745,34 @@ body {
 ${questionsHtml}
 </div>
 ${answersSection}
+${options.showPageNumbers ? '<div class="page-number-footer" id="pageNumFooter"></div>' : ''}
+${options.showPageNumbers ? `<script>
+// 페이지 번호 fallback: CSS @page margin boxes 미지원 시 JS로 처리
+(function() {
+  var footer = document.getElementById('pageNumFooter');
+  if (!footer) return;
+  // @page @bottom-center 지원 여부 감지 (지원되면 fallback 숨기기)
+  var testStyle = document.createElement('style');
+  testStyle.textContent = '@page { @bottom-center { content: "test"; } }';
+  document.head.appendChild(testStyle);
+  // Chrome 131+ 은 @page margin boxes 지원 → fallback 불필요
+  // 그 외 브라우저는 fallback 사용
+  try {
+    var sheets = document.styleSheets;
+    for (var i = 0; i < sheets.length; i++) {
+      var rules = sheets[i].cssRules;
+      for (var j = 0; j < rules.length; j++) {
+        if (rules[j].cssText && rules[j].cssText.indexOf('@bottom-center') !== -1) {
+          footer.style.display = 'none';
+          document.head.removeChild(testStyle);
+          return;
+        }
+      }
+    }
+  } catch(e) {}
+  document.head.removeChild(testStyle);
+})();
+</script>` : ''}
 </body>
 </html>`;
 }
@@ -725,13 +781,31 @@ ${answersSection}
    공개 API
    ═══════════════════════════════════════════════════════ */
 
+/** PDF 내보내기 옵션 */
+export interface PdfExportOptions {
+  showPageNumbers: boolean;   // 페이지 표시 (기본: ON)
+  includeAnswers: boolean;    // 정답/해설 포함 (기본: OFF)
+  twoColumns: boolean;        // 2단 레이아웃 (기본: OFF)
+}
+
+export const DEFAULT_PDF_OPTIONS: PdfExportOptions = {
+  showPageNumbers: true,
+  includeAnswers: false,
+  twoColumns: false,
+};
+
 /**
  * 문제 목록을 PDF로 내보내기 (새 창에서 인쇄)
  */
-export function exportAsPdf(questions: OcrQuestion[], fileName?: string): void {
+export function exportAsPdf(
+  questions: OcrQuestion[],
+  fileName?: string,
+  options?: Partial<PdfExportOptions>
+): void {
+  const opts: PdfExportOptions = { ...DEFAULT_PDF_OPTIONS, ...options };
   const title = fileName || '시험 문제';
   const prepared = prepareQuestions(questions);
-  const html = generateExamHtml(prepared, title);
+  const html = generateExamHtml(prepared, title, opts);
 
   const w = window.open('', '_blank');
   if (!w) {

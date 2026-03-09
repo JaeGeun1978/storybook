@@ -192,7 +192,7 @@ export const EXAM_ANALYSIS_PROMPT = (jsonText: string, examName: string) =>
     "total_questions": (총 문항 수),
     "overall_difficulty": "(상/중상/중/중하/하)",
     "exam_name": "${examName}",
-    "trend_analysis": "(전체적인 경향성과 특징)"
+    "trend_analysis": "${examName}는 ... (반드시 시험 이름으로 시작해서 전체적인 경향성과 특징을 서술)"
   },
   "type_classification": [
     {

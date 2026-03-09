@@ -540,10 +540,21 @@ const AnalysisModal: React.FC<{
       const origOverflow = el.style.overflow;
       el.style.maxHeight = 'none';
       el.style.overflow = 'visible';
-      const canvas = await html2canvas(el, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false });
+
+      // 강제 page break 포인트 수집 (킬러문항 등)
+      const scale = 2;
+      const breakMarkers = el.querySelectorAll('[data-page-break]');
+      const forcedBreaks: number[] = [];
+      for (const marker of breakMarkers) {
+        const markerEl = marker as HTMLElement;
+        const offsetY = markerEl.offsetTop;
+        forcedBreaks.push(offsetY * scale);
+      }
+
+      const canvas = await html2canvas(el, { scale, useCORS: true, backgroundColor: '#ffffff', logging: false });
       el.style.maxHeight = origMaxHeight;
       el.style.overflow = origOverflow;
-      const imgData = canvas.toDataURL('image/png');
+
       const imgWidth = canvas.width;
       const imgHeight = canvas.height;
       const pdfWidth = 210;
@@ -552,29 +563,45 @@ const AnalysisModal: React.FC<{
       const contentHeight = (imgHeight * contentWidth) / imgWidth;
       const pageHeight = 297 - pdfMargin * 2;
       const pdf = new jsPDF('p', 'mm', 'a4');
+
       if (contentHeight <= pageHeight - 10) {
+        const imgData = canvas.toDataURL('image/png');
         pdf.addImage(imgData, 'PNG', pdfMargin, pdfMargin, contentWidth, contentHeight);
       } else {
-        let remainingHeight = imgHeight;
+        // 최대 슬라이스 높이(px)
+        const maxSlicePx = (pageHeight / contentWidth) * imgWidth;
         let sourceY = 0;
         let page = 0;
-        while (remainingHeight > 0) {
+
+        while (sourceY < imgHeight) {
           if (page > 0) pdf.addPage();
-          const availablePageHeight = pageHeight;
-          const sliceHeightInPx = (availablePageHeight / contentWidth) * imgWidth;
-          const actualSlice = Math.min(sliceHeightInPx, remainingHeight);
-          const sliceHeightMm = (actualSlice * contentWidth) / imgWidth;
+
+          // 기본 슬라이스: 남은 높이 vs 최대 페이지 높이
+          let sliceH = Math.min(maxSlicePx, imgHeight - sourceY);
+
+          // 강제 break 포인트 확인: 현재 슬라이스 범위 안에 break 포인트가 있으면 거기서 끊기
+          for (const bp of forcedBreaks) {
+            if (bp > sourceY && bp < sourceY + sliceH) {
+              // break 포인트가 현재 페이지 시작에서 너무 가까우면(10% 미만) 무시
+              const distFromTop = bp - sourceY;
+              if (distFromTop > maxSlicePx * 0.1) {
+                sliceH = distFromTop;
+              }
+              break;
+            }
+          }
+
+          const sliceHeightMm = (sliceH * contentWidth) / imgWidth;
           const sliceCanvas = document.createElement('canvas');
           sliceCanvas.width = imgWidth;
-          sliceCanvas.height = actualSlice;
+          sliceCanvas.height = sliceH;
           const ctx = sliceCanvas.getContext('2d');
           if (ctx) {
-            ctx.drawImage(canvas, 0, sourceY, imgWidth, actualSlice, 0, 0, imgWidth, actualSlice);
+            ctx.drawImage(canvas, 0, sourceY, imgWidth, sliceH, 0, 0, imgWidth, sliceH);
             const sliceData = sliceCanvas.toDataURL('image/png');
             pdf.addImage(sliceData, 'PNG', pdfMargin, pdfMargin, contentWidth, sliceHeightMm);
           }
-          sourceY += actualSlice;
-          remainingHeight -= actualSlice;
+          sourceY += sliceH;
           page++;
         }
       }
@@ -726,9 +753,9 @@ const AnalysisModal: React.FC<{
                 </div>
               </section>
 
-              {/* 킬러문항 */}
+              {/* 킬러문항 — PDF 저장 시 여기서 강제 페이지 브레이크 */}
               {data.killer_questions.length > 0 && (
-                <section>
+                <section data-page-break="true">
                   <h3 className="text-base font-bold text-gray-700 mb-3 flex items-center gap-2">
                     <span className="w-1.5 h-5 bg-red-600 rounded-full inline-block" />
                     킬러문항

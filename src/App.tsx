@@ -6,6 +6,7 @@ import { EditorPage } from './pages/Editor';
 import { DiaryEditorPage } from './pages/DiaryEditor';
 import { ExamEditorPage } from './pages/ExamEditor';
 import { PassageEditorPage } from './pages/PassageEditor';
+import { PastExamOCRPage } from './pages/PastExamOCR';
 import { useEffect, useState } from 'react';
 import { getSettings } from './lib/store';
 import { ApiKeyModal } from './components/ApiKeyModal';
@@ -46,6 +47,7 @@ function AppRoutes() {
           <Route path="/diary/:id" element={<DiaryEditorPage />} />
           <Route path="/exam/:id" element={<ExamEditorPage />} />
           <Route path="/passage/:id" element={<PassageEditorPage />} />
+          <Route path="/past-exam-ocr" element={<PastExamOCRPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
@@ -62,7 +64,7 @@ function AppRoutes() {
 
 function App() {
   return (
-    <BrowserRouter>
+    <BrowserRouter basename="/storybook">
       <AppRoutes />
     </BrowserRouter>
   );

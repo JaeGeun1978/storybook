@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Settings, BookOpen, Menu, X } from 'lucide-react';
+import { LayoutDashboard, Settings, BookOpen, Menu, X, ScanSearch } from 'lucide-react';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
@@ -49,6 +49,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             icon={<LayoutDashboard size={18} />}
             label="대시보드"
             active={isActive('/')}
+            onClick={() => setSidebarOpen(false)}
+          />
+          <NavLink
+            to="/past-exam-ocr"
+            icon={<ScanSearch size={18} />}
+            label="기출문제OCR"
+            active={isActive('/past-exam-ocr')}
             onClick={() => setSidebarOpen(false)}
           />
           <NavLink

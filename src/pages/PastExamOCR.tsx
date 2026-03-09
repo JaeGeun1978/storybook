@@ -7,12 +7,13 @@ import {
   Upload, FileText, ChevronLeft, ChevronRight, ZoomIn, ZoomOut,
   RotateCcw, RotateCw, Trash2, Download, FolderOpen, Search,
   Loader2, X, GripVertical, BarChart3, CheckCircle2,
-  PanelRightOpen, PanelRightClose,
+  PanelRightOpen, PanelRightClose, ClipboardCheck, FileDown,
 } from 'lucide-react';
 import { useOcrStore, normalizeQuestionText, questionsToExportJson, importJsonToQuestions } from '../lib/ocrStore';
 import type { OcrQuestion } from '../lib/ocrStore';
 import { runOcr, getAnswerExplanation, analyzeExam } from '../lib/ocrGemini';
 import type { OcrMode } from '../lib/ocrGemini';
+import { exportAsPdf } from '../lib/ocrExportPdf';
 import { getSettings } from '../lib/store';
 
 // ─── 타입 ───
@@ -537,6 +538,302 @@ const AnalysisModal: React.FC<{
 };
 
 // ═══════════════════════════════════════
+//  검수 패널 (풀스크린 오버레이)
+// ═══════════════════════════════════════
+const CIRCLE_NUMBERS = ['①', '②', '③', '④', '⑤', '⑥', '⑦', '⑧', '⑨', '⑩'];
+const CIRCLE_LETTERS = ['ⓐ', 'ⓑ', 'ⓒ', 'ⓓ', 'ⓔ', 'ⓕ', 'ⓖ', 'ⓗ', 'ⓘ', 'ⓙ'];
+const CIRCLE_KOREAN = ['㉠', '㉡', '㉢', '㉣', '㉤'];
+
+const ReviewPanel: React.FC<{
+  isOpen: boolean;
+  onClose: () => void;
+  sessionName: string;
+}> = ({ isOpen, onClose, sessionName }) => {
+  const { questions, updateQuestion, deleteQuestion, markSaved } = useOcrStore();
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [editText, setEditText] = useState('');
+  const [isLoadingAnswer, setIsLoadingAnswer] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const lastSyncedIndex = useRef(-1);
+
+  const total = questions.length;
+  const safeIndex = total === 0 ? -1 : Math.min(currentIndex, total - 1);
+  const question = safeIndex >= 0 ? questions[safeIndex] : undefined;
+
+  // editText 동기화
+  useEffect(() => {
+    if (safeIndex !== lastSyncedIndex.current) {
+      lastSyncedIndex.current = safeIndex;
+      setEditText(question?.text ?? '');
+    }
+  }, [safeIndex, question?.text]);
+
+  // 외부 업데이트 감지 (정답/해설 등)
+  useEffect(() => {
+    if (question?.text !== undefined && question.text !== editText && safeIndex === lastSyncedIndex.current) {
+      setEditText(question.text);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [question?.text]);
+
+  // currentIndex 범위 보정
+  useEffect(() => {
+    if (isOpen && total > 0 && currentIndex > total - 1) setCurrentIndex(total - 1);
+  }, [isOpen, currentIndex, total]);
+
+  // 키보드 단축키
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.activeElement === textareaRef.current) return;
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        setCurrentIndex((prev) => Math.max(0, prev - 1));
+      } else if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        setCurrentIndex((prev) => Math.min(total - 1, prev + 1));
+      } else if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose, total]);
+
+  // textarea onChange
+  const handleTextChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const newText = e.target.value;
+    setEditText(newText);
+    if (safeIndex >= 0) updateQuestion(safeIndex, { text: newText });
+  }, [safeIndex, updateQuestion]);
+
+  // 삭제
+  const handleDelete = useCallback(() => {
+    if (safeIndex < 0 || total === 0) return;
+    if (!confirm(`문제 #${question?.number || safeIndex + 1}을 삭제하시겠습니까?`)) return;
+    deleteQuestion(safeIndex);
+    const newLen = total - 1;
+    const newIdx = newLen > 0 ? Math.min(safeIndex, newLen - 1) : 0;
+    setCurrentIndex(newIdx);
+    lastSyncedIndex.current = -1; // 강제 리싱크
+  }, [safeIndex, total, question?.number, deleteQuestion]);
+
+  // 정답/해설
+  const handleGetAnswer = useCallback(async () => {
+    if (safeIndex < 0 || !question) return;
+    setIsLoadingAnswer(true);
+    try {
+      const result = await getAnswerExplanation(question.text);
+      if (result) {
+        updateQuestion(safeIndex, { text: result });
+        setEditText(result);
+      }
+    } catch (error) {
+      console.error('정답/해설 실패:', error);
+    } finally {
+      setIsLoadingAnswer(false);
+    }
+  }, [safeIndex, question, updateQuestion]);
+
+  // JSON 저장
+  const handleExportJson = useCallback(() => {
+    if (questions.length === 0) return;
+    const data = questionsToExportJson(questions);
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${sessionName || 'exam_questions'}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    markSaved();
+  }, [questions, sessionName, markSaved]);
+
+  // PDF 내보내기
+  const handleExportPdf = useCallback(() => {
+    if (questions.length === 0) return;
+    exportAsPdf(questions, sessionName || `exam_${new Date().toISOString().slice(0, 10)}`);
+  }, [questions, sessionName]);
+
+  // 원문자 삽입
+  const insertChar = useCallback((char: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const newText = editText.slice(0, start) + char + editText.slice(end);
+    setEditText(newText);
+    if (safeIndex >= 0) updateQuestion(safeIndex, { text: newText });
+    requestAnimationFrame(() => {
+      textarea.focus();
+      textarea.setSelectionRange(start + char.length, start + char.length);
+    });
+  }, [editText, safeIndex, updateQuestion]);
+
+  // 서식 적용
+  const applyFormat = useCallback((format: string) => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    const start = textarea.selectionStart;
+    const end = textarea.selectionEnd;
+    const selected = editText.slice(start, end);
+    if (!selected) return;
+    let wrapped: string;
+    switch (format) {
+      case 'underline': wrapped = `**${selected}**`; break;
+      case 'bold': wrapped = `***${selected}***`; break;
+      case 'underline_bold': wrapped = `##${selected}##`; break;
+      default: return;
+    }
+    const newText = editText.slice(0, start) + wrapped + editText.slice(end);
+    setEditText(newText);
+    if (safeIndex >= 0) updateQuestion(safeIndex, { text: newText });
+  }, [editText, safeIndex, updateQuestion]);
+
+  if (!isOpen) return null;
+
+  if (total === 0) {
+    return (
+      <div className="fixed inset-0 z-50 bg-dark flex items-center justify-center">
+        <div className="text-center">
+          <p className="text-lg text-slate-400 mb-4">검수할 문제가 없습니다</p>
+          <button onClick={onClose}
+            className="px-6 py-2 bg-primary-500 text-white rounded-lg hover:bg-primary-600">
+            돌아가기
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 bg-dark flex flex-col">
+      {/* 상단 바 */}
+      <div className="flex items-center justify-between px-6 py-3 bg-surface border-b border-white/5 flex-shrink-0">
+        <div className="flex items-center gap-3">
+          <button onClick={onClose}
+            className="px-3 py-1.5 text-sm text-slate-300 bg-white/5 rounded-lg hover:bg-white/10">
+            돌아가기
+          </button>
+          <h1 className="text-base font-bold text-white">검수 모드</h1>
+          <button onClick={handleExportJson}
+            className="px-3 py-1.5 text-xs text-primary-400 bg-primary-500/10 rounded-lg hover:bg-primary-500/20">
+            JSON 저장
+          </button>
+          <button onClick={handleExportPdf}
+            className="px-3 py-1.5 text-xs text-emerald-400 bg-emerald-500/10 rounded-lg hover:bg-emerald-500/20">
+            PDF 내보내기
+          </button>
+        </div>
+
+        {/* 네비게이션 */}
+        <div className="flex items-center gap-3">
+          <button onClick={() => setCurrentIndex((i) => Math.max(0, i - 1))}
+            disabled={safeIndex <= 0}
+            className="px-4 py-1.5 text-sm bg-white/5 text-slate-300 rounded-lg hover:bg-white/10 disabled:opacity-30">
+            이전
+          </button>
+          <span className="text-sm text-slate-400 min-w-[80px] text-center">
+            <span className="text-primary-400 font-bold text-lg">{safeIndex + 1}</span>
+            <span className="text-slate-600 mx-1">/</span>
+            <span>{total}</span>
+          </span>
+          <button onClick={() => setCurrentIndex((i) => Math.min(total - 1, i + 1))}
+            disabled={safeIndex >= total - 1}
+            className="px-4 py-1.5 text-sm bg-white/5 text-slate-300 rounded-lg hover:bg-white/10 disabled:opacity-30">
+            다음
+          </button>
+        </div>
+
+        {/* 도구 */}
+        <div className="flex items-center gap-2">
+          {isLoadingAnswer ? (
+            <span className="flex items-center gap-1.5 text-xs text-emerald-400">
+              <Loader2 size={14} className="animate-spin" /> 분석중...
+            </span>
+          ) : (
+            <button onClick={handleGetAnswer}
+              className="px-3 py-1.5 text-xs text-emerald-400 bg-emerald-500/10 rounded-lg hover:bg-emerald-500/20">
+              정답/해설
+            </button>
+          )}
+          <button onClick={handleDelete}
+            className="px-3 py-1.5 text-xs text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20">
+            삭제
+          </button>
+          <button onClick={onClose}
+            className="ml-2 p-1.5 text-slate-500 hover:text-red-400 hover:bg-red-500/10 rounded-lg" title="닫기 (Esc)">
+            <X size={18} />
+          </button>
+        </div>
+      </div>
+
+      {/* 문제 번호 네비게이션 */}
+      <div className="flex items-center gap-1 px-6 py-2 bg-surface/50 border-b border-white/5 overflow-x-auto flex-shrink-0">
+        {questions.map((_, i) => (
+          <button key={i} onClick={() => setCurrentIndex(i)}
+            className={`w-8 h-8 rounded-full text-xs font-medium transition-all flex-shrink-0 ${
+              i === safeIndex
+                ? 'bg-primary-500 text-white scale-110'
+                : 'bg-white/5 text-slate-400 hover:bg-white/10'
+            }`}>
+            {i + 1}
+          </button>
+        ))}
+      </div>
+
+      {/* 원문자 & 서식 도구바 */}
+      <div className="flex flex-wrap items-center gap-2 px-6 py-2 bg-surface/30 border-b border-white/5 flex-shrink-0">
+        <div className="flex gap-0.5">
+          {CIRCLE_NUMBERS.slice(0, 5).map((c) => (
+            <button key={c} onClick={() => insertChar(c)}
+              className="w-8 h-8 text-sm rounded hover:bg-primary-500/20 text-slate-300 text-center">{c}</button>
+          ))}
+        </div>
+        <span className="text-white/10">|</span>
+        <div className="flex gap-0.5">
+          {CIRCLE_LETTERS.slice(0, 5).map((c) => (
+            <button key={c} onClick={() => insertChar(c)}
+              className="w-8 h-8 text-sm rounded hover:bg-violet-500/20 text-slate-300 text-center">{c}</button>
+          ))}
+        </div>
+        <span className="text-white/10">|</span>
+        <div className="flex gap-0.5">
+          {CIRCLE_KOREAN.map((c) => (
+            <button key={c} onClick={() => insertChar(c)}
+              className="w-8 h-8 text-sm rounded hover:bg-amber-500/20 text-slate-300 text-center">{c}</button>
+          ))}
+        </div>
+        <span className="text-white/10">|</span>
+        <button onClick={() => applyFormat('underline')}
+          className="px-2 py-1 text-sm rounded hover:bg-white/10 text-slate-400 underline">U</button>
+        <button onClick={() => applyFormat('bold')}
+          className="px-2 py-1 text-sm rounded hover:bg-white/10 text-slate-400 font-bold">B</button>
+        <button onClick={() => applyFormat('underline_bold')}
+          className="px-2 py-1 text-sm rounded hover:bg-white/10 text-slate-400 underline font-bold">UB</button>
+        <span className="text-xs text-slate-600 ml-4">방향키로 문제 이동 | Esc로 닫기</span>
+      </div>
+
+      {/* 문제 편집 영역 */}
+      <div className="flex-1 p-6 min-h-0 flex flex-col">
+        <textarea
+          ref={textareaRef}
+          value={editText}
+          onChange={handleTextChange}
+          className="w-full flex-1 p-6 text-sm font-mono leading-relaxed rounded-xl
+            border border-white/10 bg-surface text-slate-200 resize-none
+            focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-transparent"
+          placeholder="[문제] 문제 내용..."
+        />
+      </div>
+    </div>
+  );
+};
+
+// ═══════════════════════════════════════
 //  메인 페이지
 // ═══════════════════════════════════════
 export const PastExamOCRPage: React.FC = () => {
@@ -565,6 +862,9 @@ export const PastExamOCRPage: React.FC = () => {
   const [analysisData, setAnalysisData] = useState<AnalysisResult | null>(null);
   const [analysisExamName, setAnalysisExamName] = useState('');
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+
+  // 검수 패널
+  const [isReviewOpen, setIsReviewOpen] = useState(false);
 
   // API 키 확인
   const hasApiKey = !!getSettings().geminiApiKey;
@@ -950,6 +1250,13 @@ export const PastExamOCRPage: React.FC = () => {
               className="px-2.5 py-1.5 text-[10px] font-medium bg-white/5 text-slate-400 rounded-lg hover:bg-white/10">
               <Download size={12} className="inline mr-1" />JSON 저장
             </button>
+            <button onClick={() => {
+                if (questions.length === 0) { alert('내보낼 문제가 없습니다.'); return; }
+                exportAsPdf(questions, sessionName || `exam_${new Date().toISOString().slice(0, 10)}`);
+              }}
+              className="px-2.5 py-1.5 text-[10px] font-medium bg-emerald-500/15 text-emerald-400 rounded-lg hover:bg-emerald-500/25">
+              <FileDown size={12} className="inline mr-1" />PDF 내보내기
+            </button>
             {/* HWP 내보내기는 웹에서 비활성 (향후 별도 EXE로 제공 예정) */}
             <button disabled title="HWP 내보내기는 데스크톱 버전에서만 지원됩니다"
               className="px-2.5 py-1.5 text-[10px] font-medium bg-white/5 text-slate-600 rounded-lg opacity-40 cursor-not-allowed">
@@ -966,12 +1273,18 @@ export const PastExamOCRPage: React.FC = () => {
             </div>
             <div className="flex items-center gap-1">
               {questions.length > 0 && (
-                <button onClick={() => {
-                  if (confirm('모든 문제를 삭제하시겠습니까?')) deleteAllQuestions();
-                }}
-                  className="px-2 py-1 text-[10px] text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20">
-                  전체 삭제
-                </button>
+                <>
+                  <button onClick={() => setIsReviewOpen(true)}
+                    className="px-2 py-1 text-[10px] text-primary-400 bg-primary-500/10 rounded-lg hover:bg-primary-500/20">
+                    <ClipboardCheck size={11} className="inline mr-0.5" />검수
+                  </button>
+                  <button onClick={() => {
+                    if (confirm('모든 문제를 삭제하시겠습니까?')) deleteAllQuestions();
+                  }}
+                    className="px-2 py-1 text-[10px] text-red-400 bg-red-500/10 rounded-lg hover:bg-red-500/20">
+                    전체 삭제
+                  </button>
+                </>
               )}
             </div>
           </div>
@@ -1030,6 +1343,13 @@ export const PastExamOCRPage: React.FC = () => {
         data={analysisData}
         examName={analysisExamName}
         isLoading={isAnalyzing}
+      />
+
+      {/* 검수 패널 (풀스크린 오버레이) */}
+      <ReviewPanel
+        isOpen={isReviewOpen}
+        onClose={() => setIsReviewOpen(false)}
+        sessionName={sessionName}
       />
     </div>
   );

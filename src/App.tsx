@@ -64,7 +64,7 @@ function AppRoutes() {
 
 function App() {
   return (
-    <BrowserRouter basename="/storybook">
+    <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '') || '/'}>
       <AppRoutes />
     </BrowserRouter>
   );

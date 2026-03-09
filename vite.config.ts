@@ -2,8 +2,9 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
+// Vercel: base='/' (기본값), GitHub Pages: base='/storybook/'
 export default defineConfig({
-  base: '/storybook/',
+  base: process.env.VITE_BASE || '/',
   plugins: [react(), tailwindcss()],
   server: {
     proxy: {

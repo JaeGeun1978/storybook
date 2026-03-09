@@ -569,6 +569,64 @@ function generateExamHtml(
   const questionsHtml = questions
     .map((q) => {
       const pq = parseQuestionStructure(q.questionText);
+
+      // 복합 문제 (공유 지문 + 다수 sub-question) 인 경우
+      // 지문이 너무 길어 break-inside:avoid 때문에 페이지 밖으로 밀리지 않도록
+      // 공유 헤더+지문과 개별 문제를 분리된 HTML 블록으로 생성한다.
+      const isComplex = pq.sharedPassage && pq.subQuestions.length > 1;
+
+      if (isComplex) {
+        const contextChunks: string[] = [];
+
+        // 출처
+        if (q.source) {
+          contextChunks.push(`<div class="source">${applyFormatting(q.source)}</div>`);
+        }
+        // 공유 지문 헤더
+        if (pq.sharedHeader) {
+          contextChunks.push(
+            `<div class="q-header">${fmtLines(pq.sharedHeader.split('\n'))}</div>`
+          );
+        }
+        // 공유 지문 (페이지 넘김 허용)
+        contextChunks.push(renderPassage(pq.sharedPassage!));
+
+        // 공유 지문 영역: break-inside 제한 없이 (긴 지문도 안전하게 페이지 넘김)
+        let html = `<div class="question-context">${contextChunks.join('')}</div>\n`;
+
+        // 개별 sub-question: 각각 break-inside:avoid 적용
+        for (const sq of pq.subQuestions) {
+          const sqChunks: string[] = [];
+          if (sq.headerTop) {
+            sqChunks.push(
+              `<div class="q-header">${fmtLines(sq.headerTop.split('\n'))}</div>`
+            );
+          }
+          if (sq.passage) {
+            sqChunks.push(renderPassage(sq.passage));
+          }
+          if (sq.headerBottom && sq.headerBottom.trim()) {
+            sqChunks.push(
+              `<div class="q-header q-sub">${fmtLines(sq.headerBottom.split('\n'))}</div>`
+            );
+          }
+          if (sq.gapBeforeOptions > 0) {
+            sqChunks.push(`<div style="height:${sq.gapBeforeOptions}em"></div>`);
+          }
+          if (sq.options) {
+            sqChunks.push(renderOptions(sq.options));
+          }
+          html += `<div class="question">${sqChunks.join('')}</div>\n`;
+        }
+
+        // [이미지N] 마커를 <img> 태그로 교체
+        if (q.images && q.images.length > 0) {
+          html = replaceImageMarkers(html, q.images);
+        }
+        return html;
+      }
+
+      // 단순 문제: 기존 로직 (전체를 한 블록에)
       let body = formatQuestionHtml(pq, q.source);
       // [이미지N] 마커를 <img> 태그로 교체
       if (q.images && q.images.length > 0) {
@@ -693,6 +751,10 @@ body {
 .question {
   break-inside: avoid;
   margin-bottom: 14px;
+}
+/* 복합 문제의 공유 헤더+지문 영역: 페이지 넘김 허용 */
+.question-context {
+  margin-bottom: 6px;
 }
 .source {
   font-size: 8.5pt;

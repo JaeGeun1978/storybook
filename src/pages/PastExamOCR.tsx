@@ -541,7 +541,7 @@ const AnalysisModal: React.FC<{
 
     // 유형 분류 테이블 행
     const typeRows = data.type_classification.map(t =>
-      `<tr>
+      `<tr style="break-inside:avoid;">
         <td style="padding:8px 12px; font-weight:500; color:#1f2937;">${t.type}</td>
         <td style="padding:8px 12px; text-align:center; color:#4b5563;">${t.count}</td>
         <td style="padding:8px 12px; text-align:center;">
@@ -577,7 +577,7 @@ const AnalysisModal: React.FC<{
           킬러문항
         </h3>
         ${data.killer_questions.map(kq => `
-          <div style="background:#fef2f2; border-radius:12px; padding:16px; border:1px solid #fecaca; margin-bottom:12px;">
+          <div style="background:#fef2f2; border-radius:12px; padding:16px; border:1px solid #fecaca; margin-bottom:12px; break-inside:avoid;">
             <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
               <span style="padding:2px 10px; background:#dc2626; color:white; font-size:11px; font-weight:700; border-radius:9999px;">${kq.q_number}번</span>
               <span style="font-size:12px; color:#dc2626; font-weight:500;">${kq.type}</span>
@@ -590,13 +590,13 @@ const AnalysisModal: React.FC<{
 
     // 학습 계획
     const studyHtml = data.study_plan.length > 0 ? `
-      <div style="margin-top:24px;">
+      <div style="margin-top:24px; break-before:avoid;">
         <h3 style="font-size:15px; font-weight:700; color:#374151; margin:0 0 12px 0; display:flex; align-items:center; gap:8px;">
           <span style="width:6px; height:20px; background:#16a34a; border-radius:9999px; display:inline-block;"></span>
           학습 계획
         </h3>
         ${data.study_plan.map(sp => `
-          <div style="display:flex; gap:12px; background:#f0fdf4; border-radius:12px; padding:16px; border:1px solid #bbf7d0; margin-bottom:12px;">
+          <div style="display:flex; gap:12px; background:#f0fdf4; border-radius:12px; padding:16px; border:1px solid #bbf7d0; margin-bottom:12px; break-inside:avoid;">
             <div style="flex-shrink:0; width:32px; height:32px; background:#16a34a; color:white; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700;">
               ${sp.priority}
             </div>
@@ -636,7 +636,7 @@ const AnalysisModal: React.FC<{
 </div>
 
 <!-- 종합 총평 -->
-<div style="margin-bottom:24px;">
+<div style="margin-bottom:24px; break-inside:avoid;">
   <h3 style="font-size:15px; font-weight:700; color:#374151; margin:0 0 12px 0; display:flex; align-items:center; gap:8px;">
     <span style="width:6px; height:20px; background:#2563eb; border-radius:9999px; display:inline-block;"></span>
     종합 총평
@@ -653,7 +653,7 @@ const AnalysisModal: React.FC<{
 </div>
 
 <!-- 유형별 분류 -->
-<div style="margin-bottom:24px;">
+<div style="margin-bottom:24px; break-inside:avoid;">
   <h3 style="font-size:15px; font-weight:700; color:#374151; margin:0 0 12px 0; display:flex; align-items:center; gap:8px;">
     <span style="width:6px; height:20px; background:#9333ea; border-radius:9999px; display:inline-block;"></span>
     유형별 분류
@@ -674,7 +674,7 @@ const AnalysisModal: React.FC<{
 </div>
 
 <!-- 난이도 분포 -->
-<div style="margin-bottom:24px;">
+<div style="margin-bottom:24px; break-inside:avoid;">
   <h3 style="font-size:15px; font-weight:700; color:#374151; margin:0 0 12px 0; display:flex; align-items:center; gap:8px;">
     <span style="width:6px; height:20px; background:#eab308; border-radius:9999px; display:inline-block;"></span>
     난이도 분포

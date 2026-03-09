@@ -529,114 +529,174 @@ const AnalysisModal: React.FC<{
 
   if (!isOpen) return null;
 
-  const handleSavePdf = async () => {
-    if (!data || !contentRef.current) return;
-    setIsPdfGenerating(true);
-    try {
-      const html2canvas = (await import('html2canvas-pro')).default;
-      const jsPDF = (await import('jspdf')).default;
-      const el = contentRef.current;
+  const handleSavePdf = () => {
+    if (!data) return;
 
-      // 1) 스크롤 영역 전체 캡처를 위해 높이/overflow 제한 해제
-      const origMaxHeight = el.style.maxHeight;
-      const origOverflow = el.style.overflow;
-      el.style.maxHeight = 'none';
-      el.style.overflow = 'visible';
+    const total = data.summary.total_questions || 1;
+    const diffColor = (d: string) => {
+      if (d.includes('상')) return 'color:#dc2626; background:#fef2f2; border:1px solid #fecaca;';
+      if (d.includes('하')) return 'color:#16a34a; background:#f0fdf4; border:1px solid #bbf7d0;';
+      return 'color:#ca8a04; background:#fefce8; border:1px solid #fef08a;';
+    };
 
-      // 2) 강제 page break 포인트 수집 (getBoundingClientRect 기반 — 정확한 위치)
-      const scale = 2;
-      const containerRect = el.getBoundingClientRect();
-      const breakMarkers = el.querySelectorAll('[data-page-break]');
-      const forcedBreaksPx: number[] = []; // scale 적용 전 CSS px
-      for (const marker of breakMarkers) {
-        const markerRect = (marker as HTMLElement).getBoundingClientRect();
-        // container 상단 대비 상대 위치
-        const relativeY = markerRect.top - containerRect.top;
-        forcedBreaksPx.push(relativeY);
-      }
-      forcedBreaksPx.sort((a, b) => a - b);
+    // 유형 분류 테이블 행
+    const typeRows = data.type_classification.map(t =>
+      `<tr>
+        <td style="padding:8px 12px; font-weight:500; color:#1f2937;">${t.type}</td>
+        <td style="padding:8px 12px; text-align:center; color:#4b5563;">${t.count}</td>
+        <td style="padding:8px 12px; text-align:center;">
+          <span style="padding:2px 8px; border-radius:9999px; font-size:11px; font-weight:500; ${diffColor(t.difficulty_avg)}">${t.difficulty_avg}</span>
+        </td>
+        <td style="padding:8px 12px; color:#6b7280; font-size:12px;">${toArray(t.question_numbers).join(', ')}</td>
+      </tr>`
+    ).join('');
 
-      // 3) html2canvas로 캡처
-      const canvas = await html2canvas(el, {
-        scale,
-        useCORS: true,
-        backgroundColor: '#ffffff',
-        logging: false,
-      });
+    // 난이도 분포 바
+    const diffBars = [
+      { label: '상', count: data.difficulty_distribution.high, color: '#ef4444' },
+      { label: '중', count: data.difficulty_distribution.mid, color: '#eab308' },
+      { label: '하', count: data.difficulty_distribution.low, color: '#22c55e' },
+    ].map(d => {
+      const pct = Math.round((d.count / total) * 100);
+      return `<div style="flex:1;">
+        <div style="display:flex; justify-content:space-between; margin-bottom:4px;">
+          <span style="font-size:13px; font-weight:500; color:#374151;">${d.label}</span>
+          <span style="font-size:11px; color:#6b7280;">${d.count}문제 (${pct}%)</span>
+        </div>
+        <div style="width:100%; background:#e5e7eb; border-radius:9999px; height:12px;">
+          <div style="width:${pct}%; background:${d.color}; border-radius:9999px; height:12px;"></div>
+        </div>
+      </div>`;
+    }).join('');
 
-      // 4) 스타일 복원
-      el.style.maxHeight = origMaxHeight;
-      el.style.overflow = origOverflow;
+    // 킬러문항
+    const killerHtml = data.killer_questions.length > 0 ? `
+      <div style="page-break-before: always;">
+        <h3 style="font-size:15px; font-weight:700; color:#374151; margin:0 0 12px 0; display:flex; align-items:center; gap:8px;">
+          <span style="width:6px; height:20px; background:#dc2626; border-radius:9999px; display:inline-block;"></span>
+          킬러문항
+        </h3>
+        ${data.killer_questions.map(kq => `
+          <div style="background:#fef2f2; border-radius:12px; padding:16px; border:1px solid #fecaca; margin-bottom:12px;">
+            <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+              <span style="padding:2px 10px; background:#dc2626; color:white; font-size:11px; font-weight:700; border-radius:9999px;">${kq.q_number}번</span>
+              <span style="font-size:12px; color:#dc2626; font-weight:500;">${kq.type}</span>
+            </div>
+            <p style="font-size:13px; color:#374151; margin:0 0 4px 0;"><b>이유:</b> ${kq.reason}</p>
+            <p style="font-size:13px; color:#374151; margin:0;"><b>전략:</b> ${kq.strategy}</p>
+          </div>
+        `).join('')}
+      </div>` : '';
 
-      // 5) canvas → PDF 변환
-      const imgWidth = canvas.width;   // px (scale 적용됨)
-      const imgHeight = canvas.height;
-      const pdfWidth = 210;  // A4 mm
-      const pdfMargin = 15;
-      const contentWidth = pdfWidth - pdfMargin * 2;
-      const contentMmHeight = (imgHeight * contentWidth) / imgWidth;
-      const pageHeight = 297 - pdfMargin * 2; // mm
-      const pdf = new jsPDF('p', 'mm', 'a4');
+    // 학습 계획
+    const studyHtml = data.study_plan.length > 0 ? `
+      <div style="margin-top:24px;">
+        <h3 style="font-size:15px; font-weight:700; color:#374151; margin:0 0 12px 0; display:flex; align-items:center; gap:8px;">
+          <span style="width:6px; height:20px; background:#16a34a; border-radius:9999px; display:inline-block;"></span>
+          학습 계획
+        </h3>
+        ${data.study_plan.map(sp => `
+          <div style="display:flex; gap:12px; background:#f0fdf4; border-radius:12px; padding:16px; border:1px solid #bbf7d0; margin-bottom:12px;">
+            <div style="flex-shrink:0; width:32px; height:32px; background:#16a34a; color:white; border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:14px; font-weight:700;">
+              ${sp.priority}
+            </div>
+            <div style="flex:1;">
+              <p style="font-size:13px; font-weight:700; color:#1f2937; margin:0 0 4px 0;">${sp.area}</p>
+              <p style="font-size:13px; color:#374151; margin:0; line-height:1.6;">${sp.content}</p>
+              ${toArray(sp.target_types).length > 0 ? `
+                <div style="display:flex; flex-wrap:wrap; gap:4px; margin-top:8px;">
+                  ${toArray(sp.target_types).map(t =>
+                    `<span style="padding:2px 8px; background:#bbf7d0; color:#166534; font-size:11px; border-radius:9999px;">${t}</span>`
+                  ).join('')}
+                </div>` : ''}
+            </div>
+          </div>
+        `).join('')}
+      </div>` : '';
 
-      // canvas px → break 포인트 (scale 적용)
-      const forcedBreaks = forcedBreaksPx.map(y => Math.round(y * scale));
+    const html = `<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<title>${examName} 분석결과</title>
+<style>
+  @page { size: A4; margin: 20mm; }
+  * { box-sizing: border-box; }
+  body { font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', sans-serif; color: #1f2937; margin: 0; padding: 0; line-height: 1.5; }
+  table { border-collapse: collapse; width: 100%; }
+  @media print {
+    body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+</head><body>
 
-      if (contentMmHeight <= pageHeight - 10) {
-        // 한 페이지에 모두 들어감
-        const imgData = canvas.toDataURL('image/png');
-        pdf.addImage(imgData, 'PNG', pdfMargin, pdfMargin, contentWidth, contentMmHeight);
-      } else {
-        // 여러 페이지 — 강제 break 포인트를 반영하여 슬라이스
-        const maxSlicePx = (pageHeight / contentWidth) * imgWidth;
-        let sourceY = 0;
-        let page = 0;
+<!-- 헤더 -->
+<div style="border-bottom:2px solid #2563eb; padding-bottom:12px; margin-bottom:24px;">
+  <h1 style="font-size:20px; font-weight:700; color:#1e40af; margin:0;">시험지 분석 결과</h1>
+  <p style="font-size:12px; color:#6b7280; margin:4px 0 0 0;">${examName}</p>
+</div>
 
-        while (sourceY < imgHeight) {
-          if (page > 0) pdf.addPage();
+<!-- 종합 총평 -->
+<div style="margin-bottom:24px;">
+  <h3 style="font-size:15px; font-weight:700; color:#374151; margin:0 0 12px 0; display:flex; align-items:center; gap:8px;">
+    <span style="width:6px; height:20px; background:#2563eb; border-radius:9999px; display:inline-block;"></span>
+    종합 총평
+  </h3>
+  <div style="background:#eff6ff; border-radius:12px; padding:16px;">
+    <div style="display:flex; align-items:center; gap:16px; font-size:13px; margin-bottom:8px;">
+      <span style="color:#4b5563;">총 문항: <b style="color:#1d4ed8;">${data.summary.total_questions}문제</b></span>
+      <span style="padding:2px 8px; border-radius:9999px; font-size:11px; font-weight:500; ${diffColor(data.summary.overall_difficulty)}">
+        난이도: ${data.summary.overall_difficulty}
+      </span>
+    </div>
+    <p style="font-size:13px; color:#374151; margin:0; line-height:1.7;">${data.summary.trend_analysis}</p>
+  </div>
+</div>
 
-          // 기본 슬라이스 높이
-          let sliceH = Math.min(maxSlicePx, imgHeight - sourceY);
+<!-- 유형별 분류 -->
+<div style="margin-bottom:24px;">
+  <h3 style="font-size:15px; font-weight:700; color:#374151; margin:0 0 12px 0; display:flex; align-items:center; gap:8px;">
+    <span style="width:6px; height:20px; background:#9333ea; border-radius:9999px; display:inline-block;"></span>
+    유형별 분류
+  </h3>
+  <div style="border:1px solid #e5e7eb; border-radius:12px; overflow:hidden;">
+    <table>
+      <thead style="background:#f9fafb;">
+        <tr>
+          <th style="text-align:left; padding:8px 12px; font-weight:500; color:#4b5563; font-size:13px;">유형</th>
+          <th style="text-align:center; padding:8px 12px; font-weight:500; color:#4b5563; font-size:13px;">문항수</th>
+          <th style="text-align:center; padding:8px 12px; font-weight:500; color:#4b5563; font-size:13px;">난이도</th>
+          <th style="text-align:left; padding:8px 12px; font-weight:500; color:#4b5563; font-size:13px;">문항 번호</th>
+        </tr>
+      </thead>
+      <tbody>${typeRows}</tbody>
+    </table>
+  </div>
+</div>
 
-          // 이 슬라이스 범위 안에 강제 break가 있으면 거기서 끊기
-          for (const bp of forcedBreaks) {
-            if (bp <= sourceY) continue;             // 이미 지난 break
-            if (bp >= sourceY + sliceH) break;       // 이 페이지 범위 밖
-            // break가 이 슬라이스 안에 있음
-            const dist = bp - sourceY;
-            // 너무 가까우면(5% 미만) 무시 — 여백만 남을 수 있음
-            if (dist > maxSlicePx * 0.05) {
-              sliceH = dist;
-            }
-            break;
-          }
+<!-- 난이도 분포 -->
+<div style="margin-bottom:24px;">
+  <h3 style="font-size:15px; font-weight:700; color:#374151; margin:0 0 12px 0; display:flex; align-items:center; gap:8px;">
+    <span style="width:6px; height:20px; background:#eab308; border-radius:9999px; display:inline-block;"></span>
+    난이도 분포
+  </h3>
+  <div style="display:flex; align-items:center; gap:16px;">
+    ${diffBars}
+  </div>
+</div>
 
-          const sliceHeightMm = (sliceH * contentWidth) / imgWidth;
-          const sliceCanvas = document.createElement('canvas');
-          sliceCanvas.width = imgWidth;
-          sliceCanvas.height = Math.ceil(sliceH);
-          const ctx = sliceCanvas.getContext('2d');
-          if (ctx) {
-            ctx.drawImage(
-              canvas,
-              0, Math.floor(sourceY), imgWidth, Math.ceil(sliceH),
-              0, 0, imgWidth, Math.ceil(sliceH),
-            );
-            const sliceData = sliceCanvas.toDataURL('image/png');
-            pdf.addImage(sliceData, 'PNG', pdfMargin, pdfMargin, contentWidth, sliceHeightMm);
-          }
+<!-- 킬러문항 (page-break-before: always) -->
+${killerHtml}
 
-          sourceY += sliceH;
-          page++;
-        }
-      }
+<!-- 학습 계획 -->
+${studyHtml}
 
-      pdf.save(`${examName || '시험분석'}_분석결과.pdf`);
-    } catch (err) {
-      console.error('PDF 생성 실패:', err);
-      alert('PDF 생성 중 오류가 발생했습니다.');
-    } finally {
-      setIsPdfGenerating(false);
-    }
+</body></html>`;
+
+    const w = window.open('', '_blank');
+    if (!w) { alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.'); return; }
+    w.document.write(html);
+    w.document.close();
+    setTimeout(() => { w.print(); }, 300);
   };
 
   const handleSaveJson = () => {

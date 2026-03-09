@@ -15,7 +15,7 @@ import {
   EXAM_ANALYSIS_PROMPT,
 } from './ocrPrompts';
 
-const MODEL_NAME = 'gemini-2.5-flash-preview-05-20';
+const MODEL_NAME = 'gemini-2.0-flash';
 
 export type OcrMode = 'extract' | 'extract_formatting' | 'multi' | 'multi_formatting';
 
@@ -24,14 +24,7 @@ function getModel() {
   if (!geminiApiKey) throw new Error('Gemini API Key가 설정되지 않았습니다. 설정 페이지에서 키를 등록해주세요.');
 
   const genAI = new GoogleGenerativeAI(geminiApiKey);
-  return genAI.getGenerativeModel(
-    { model: MODEL_NAME },
-    {
-      apiVersion: 'v1beta',
-      // @ts-ignore
-      dangerouslyAllowBrowser: true,
-    }
-  );
+  return genAI.getGenerativeModel({ model: MODEL_NAME });
 }
 
 /**

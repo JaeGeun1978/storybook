@@ -7,6 +7,7 @@ import {
   Upload, FileText, ChevronLeft, ChevronRight, ZoomIn, ZoomOut,
   RotateCcw, RotateCw, Trash2, Download, FolderOpen, Search,
   Loader2, X, GripVertical, BarChart3, CheckCircle2,
+  PanelRightOpen, PanelRightClose,
 } from 'lucide-react';
 import { useOcrStore, normalizeQuestionText, questionsToExportJson, importJsonToQuestions } from '../lib/ocrStore';
 import type { OcrQuestion } from '../lib/ocrStore';
@@ -554,6 +555,7 @@ export const PastExamOCRPage: React.FC = () => {
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [loadingAnswerIndex, setLoadingAnswerIndex] = useState<number | null>(null);
   const [sessionName, setSessionName] = useState('');
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
 
   // 이미지 큐
   const [queuedImages, setQueuedImages] = useState<{ dataUrl: string; name: string }[]>([]);
@@ -620,6 +622,7 @@ export const PastExamOCRPage: React.FC = () => {
           region: [Math.round(regions[0].x), Math.round(regions[0].y),
                    Math.round(regions[0].x + regions[0].width), Math.round(regions[0].y + regions[0].height)],
         });
+        setRightPanelOpen(true); // 문제 추가 시 패널 자동 열기
       }
     } catch (error) {
       console.error('OCR 처리 실패:', error);
@@ -825,31 +828,23 @@ export const PastExamOCRPage: React.FC = () => {
 
         <div className="flex-1" />
 
-        {/* 파일 작업 */}
-        <div className="flex items-center gap-1">
-          <button onClick={handleAnalyzeExam}
-            className="px-3 py-1.5 text-[11px] font-medium bg-violet-500/15 text-violet-400 rounded-lg hover:bg-violet-500/25">
-            <BarChart3 size={13} className="inline mr-1" />시험지 분석
-          </button>
-          <button onClick={handleImportJson}
-            className="px-3 py-1.5 text-[11px] font-medium bg-white/5 text-slate-400 rounded-lg hover:bg-white/10">
-            <FolderOpen size={13} className="inline mr-1" />JSON 가져오기
-          </button>
-          <button onClick={handleExportJson}
-            className="px-3 py-1.5 text-[11px] font-medium bg-white/5 text-slate-400 rounded-lg hover:bg-white/10">
-            <Download size={13} className="inline mr-1" />JSON 저장
-          </button>
-          {/* HWP 내보내기는 웹에서 비활성 (향후 별도 EXE로 제공 예정) */}
-          <button disabled title="HWP 내보내기는 데스크톱 버전에서만 지원됩니다"
-            className="px-3 py-1.5 text-[11px] font-medium bg-white/5 text-slate-600 rounded-lg opacity-40 cursor-not-allowed">
-            HWP 내보내기
-          </button>
-        </div>
+        {/* 문제 패널 토글 */}
+        <button
+          onClick={() => setRightPanelOpen(!rightPanelOpen)}
+          className={`flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-lg transition-all ${
+            rightPanelOpen
+              ? 'bg-primary-500/20 text-primary-400 ring-1 ring-primary-500/30'
+              : 'bg-white/5 text-slate-400 hover:bg-white/10'
+          }`}
+        >
+          {rightPanelOpen ? <PanelRightClose size={14} /> : <PanelRightOpen size={14} />}
+          문제 목록 {questions.length > 0 && `(${questions.length})`}
+        </button>
       </div>
 
       {/* ── 메인 영역 ── */}
       <div className="flex flex-1 overflow-hidden">
-        {/* 왼쪽: 이미지/PDF 영역 */}
+        {/* 왼쪽: 이미지/PDF 영역 — 패널 닫히면 전체 너비 사용 */}
         <div className="flex-1 flex flex-col p-4 overflow-auto min-w-0">
           {/* PDF 네비게이션 */}
           {pdfFile && (
@@ -937,9 +932,32 @@ export const PastExamOCRPage: React.FC = () => {
           )}
         </div>
 
-        {/* 오른쪽: 문제 카드 목록 */}
-        <div className="w-[420px] border-l border-white/5 bg-surface/30 flex flex-col flex-shrink-0">
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/5">
+        {/* 오른쪽: 문제 카드 목록 (접기/펴기 가능) */}
+        <div className={`border-l border-white/5 bg-surface/30 flex flex-col flex-shrink-0 transition-all duration-300 ${
+          rightPanelOpen ? 'w-[420px]' : 'w-0 overflow-hidden border-l-0'
+        }`}>
+          {/* 파일 작업 도구 */}
+          <div className="flex flex-wrap items-center gap-1 px-3 py-2 border-b border-white/5 bg-surface/50">
+            <button onClick={handleAnalyzeExam}
+              className="px-2.5 py-1.5 text-[10px] font-medium bg-violet-500/15 text-violet-400 rounded-lg hover:bg-violet-500/25">
+              <BarChart3 size={12} className="inline mr-1" />시험지 분석
+            </button>
+            <button onClick={handleImportJson}
+              className="px-2.5 py-1.5 text-[10px] font-medium bg-white/5 text-slate-400 rounded-lg hover:bg-white/10">
+              <FolderOpen size={12} className="inline mr-1" />JSON 가져오기
+            </button>
+            <button onClick={handleExportJson}
+              className="px-2.5 py-1.5 text-[10px] font-medium bg-white/5 text-slate-400 rounded-lg hover:bg-white/10">
+              <Download size={12} className="inline mr-1" />JSON 저장
+            </button>
+            {/* HWP 내보내기는 웹에서 비활성 (향후 별도 EXE로 제공 예정) */}
+            <button disabled title="HWP 내보내기는 데스크톱 버전에서만 지원됩니다"
+              className="px-2.5 py-1.5 text-[10px] font-medium bg-white/5 text-slate-600 rounded-lg opacity-40 cursor-not-allowed">
+              HWP
+            </button>
+          </div>
+          {/* 문제 목록 헤더 */}
+          <div className="flex items-center justify-between px-4 py-2.5 border-b border-white/5">
             <div className="flex items-center gap-2">
               <h2 className="text-sm font-bold text-white">문제 목록</h2>
               {questions.length > 0 && (

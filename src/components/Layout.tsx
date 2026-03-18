@@ -23,7 +23,20 @@ const Layout: React.FC = () => {
                                 borderRadius: '5px',
                                 backgroundColor: isActive('/') ? '#e9ecef' : 'transparent'
                             }}>
-                                Dashboard
+                                🎬 Dashboard
+                            </Link>
+                        </li>
+                        <li style={{ marginBottom: '10px' }}>
+                            <Link to="/words" style={{
+                                textDecoration: 'none',
+                                color: isActive('/words') ? '#7C3AED' : '#333',
+                                fontWeight: isActive('/words') ? 'bold' : 'normal',
+                                display: 'block',
+                                padding: '10px',
+                                borderRadius: '5px',
+                                backgroundColor: isActive('/words') ? '#F5F3FF' : 'transparent'
+                            }}>
+                                📖 단어장
                             </Link>
                         </li>
                         <li>
@@ -36,7 +49,7 @@ const Layout: React.FC = () => {
                                 borderRadius: '5px',
                                 backgroundColor: isActive('/settings') ? '#e9ecef' : 'transparent'
                             }}>
-                                Settings
+                                ⚙️ Settings
                             </Link>
                         </li>
                     </ul>
@@ -44,7 +57,7 @@ const Layout: React.FC = () => {
             </aside>
 
             {/* Main Content */}
-            <main style={{ flex: 1, padding: '40px', overflowY: 'auto' }}>
+            <main style={{ flex: 1, padding: '20px', overflowY: 'auto' }}>
                 <Outlet />
             </main>
         </div>

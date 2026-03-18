@@ -144,6 +144,7 @@ const WordsPage: React.FC = () => {
           border: '2px solid #E5E7EB',
           overflow: 'auto',
           minHeight: 0,
+          color: '#1F2937',
         }}
       >
         {activeTab === 'input' && (

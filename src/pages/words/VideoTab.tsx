@@ -1,4 +1,4 @@
-﻿import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import type { Word, Sentence, DirectReadSentence } from '../../types/words';
 import { getSettings } from '../../lib/store';
 import { generateSpeechAudio } from '../../lib/wordsGemini';
@@ -1003,5 +1003,3 @@ function playBtnStyle(c1: string, c2: string): React.CSSProperties {
 }
 
 export default VideoTab;
-
-

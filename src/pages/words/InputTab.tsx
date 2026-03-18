@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Word, Sentence } from '../../types/words';
 import {
   splitAndTranslate,
@@ -13,15 +13,16 @@ interface InputSet {
   id: number;
   sourceName: string;
   englishText: string;
-  /** ?명듃(異쒖쿂)留덈떎 李얠쓣 ?⑥뼱 ?? "5~10" ?먮뒗 "?먮룞" (?먮룞? 臾몄옣 ??湲곗??쇰줈 怨꾩궛) */
+  /** 세트(출처)마다 찾을 단어 수. "5~10" 또는 "자동" (자동은 문장 수 기준으로 계산) */
   wordsToFind: string;
 }
 
-// ?섎룞 ?좏깮 ?⑥뼱
+// 수동 선택 단어
 interface ManualSelection {
   id: number;
   word: string;
-  sentenceIdx: number; // sentences 諛곗뿴???몃뜳??  source: string;
+  sentenceIdx: number; // sentences 배열의 인덱스
+  source: string;
   sentence_en: string;
   sentence_kr: string;
 }
@@ -49,7 +50,7 @@ const InputTab: React.FC<InputTabProps> = ({
     { id: nextInputId++, sourceName: '', englishText: '', wordsToFind: '5~10' },
   ]);
   const [wordsRange, setWordsRange] = useState('5~10');
-  /** ?묒? ?깆뿉??遺덈윭??異쒖쿂蹂?李얠쓣 ?⑥뼱 ??(?먮룞 吏????議곗젙?? */
+  /** 엑셀 등에서 불러온 출처별 찾을 단어 수 (자동 지정 후 조정용) */
   const [sourceWordsOverride, setSourceWordsOverride] = useState<Record<string, string>>({});
   const [model, setModel] = useState(GEMINI_MODELS[0]);
   const [isTranslating, setIsTranslating] = useState(false);
@@ -57,27 +58,27 @@ const InputTab: React.FC<InputTabProps> = ({
   const [isSendingManual, setIsSendingManual] = useState(false);
   const [log, setLog] = useState('');
 
-  // 臾몄옣蹂?異붿텧???⑥뼱 留ㅽ븨 (sentenceIdx ??Word[])
+  // 문장별 추출된 단어 매핑 (sentenceIdx → Word[])
   const [sentenceWordsMap, setSentenceWordsMap] = useState<Record<number, Word[]>>({});
 
-  // ?섎룞 ?좏깮 ?⑥뼱 紐⑸줉
+  // 수동 선택 단어 목록
   const [manualSelections, setManualSelections] = useState<ManualSelection[]>([]);
 
-  // 臾몄옣 ?몄쭛 紐⑤뱶
+  // 문장 편집 모드
   const [isEditingMode, setIsEditingMode] = useState(false);
   const [editBuffer, setEditBuffer] = useState<Sentence[]>([]);
 
-  // 臾몄옣 ?곸뿭 ref (Alt+1 ?대깽??媛먯???
+  // 문장 영역 ref (Alt+1 이벤트 감지용)
   const sentenceAreaRef = useRef<HTMLDivElement>(null);
 
   const addLog = (msg: string) => setLog((prev) => prev + '\n' + msg);
 
-  // --- ?⑥뼱 ??臾몄옣 留ㅽ븨 ---
+  // --- 단어 → 문장 매핑 ---
   const mapWordsToSentences = useCallback(
     (words: Word[]) => {
       const map: Record<number, Word[]> = {};
       for (const w of words) {
-        // example_en怨?source濡?留ㅼ묶
+        // example_en과 source로 매칭
         const idx = sentences.findIndex(
           (s) =>
             s.source === w.source &&
@@ -85,7 +86,7 @@ const InputTab: React.FC<InputTabProps> = ({
               w.example_en?.includes(s.sentence_en) ||
               s.sentence_en?.includes(w.word))
         );
-        // 留ㅼ묶 ?덈릺硫?source留뚯쑝濡?泥?臾몄옣 留ㅼ묶
+        // 매칭 안되면 source만으로 첫 문장 매칭
         let matchIdx = idx;
         if (matchIdx < 0) {
           matchIdx = sentences.findIndex((s) => s.source === w.source);
@@ -100,7 +101,7 @@ const InputTab: React.FC<InputTabProps> = ({
     [sentences]
   );
 
-  // --- ?명듃 愿由?---
+  // --- 세트 관리 ---
   const handleAddSet = () => {
     setInputSets((prev) => [
       ...prev,
@@ -121,7 +122,7 @@ const InputTab: React.FC<InputTabProps> = ({
     );
   };
 
-  /** ?명듃蹂?李얠쓣 ?⑥뼱 ???먮룞 怨꾩궛: ?대떦 異쒖쿂 臾몄옣 ??湲곗? N~2N (理쒕? 30) */
+  /** 세트별 찾을 단어 수 자동 계산: 해당 출처 문장 수 기준 N~2N (최대 30) */
   const handleAutoCalcWordsPerSet = () => {
     setInputSets((prev) =>
       prev.map((set) => {
@@ -132,10 +133,10 @@ const InputTab: React.FC<InputTabProps> = ({
         return { ...set, wordsToFind: `${count}~${max}` };
       })
     );
-    addLog('???명듃蹂?李얠쓣 ?⑥뼱 ?섎? 臾몄옣 ??湲곗??쇰줈 ?먮룞 怨꾩궛?덉뒿?덈떎.');
+    addLog('✅ 세트별 찾을 단어 수를 문장 수 기준으로 자동 계산했습니다.');
   };
 
-  // --- ?묒? ?뚯씪 ?낅줈??---
+  // --- 엑셀 파일 업로드 ---
   const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -152,7 +153,7 @@ const InputTab: React.FC<InputTabProps> = ({
         const en = row[1] ? String(row[1]) : '';
         const kr = row[2] ? String(row[2]) : '';
         if (en) {
-          newSentences.push({ source: currentSource || '?묒?', sentence_en: en, sentence_kr: kr });
+          newSentences.push({ source: currentSource || '엑셀', sentence_en: en, sentence_kr: kr });
         }
       }
       setSentences((prev) => [...prev, ...newSentences]);
@@ -167,42 +168,42 @@ const InputTab: React.FC<InputTabProps> = ({
         }
         return next;
       });
-      addLog(`???묒? ?뚯씪?먯꽌 ${newSentences.length}媛?臾몄옣??遺덈윭?붿뒿?덈떎. (異쒖쿂 ${sourcesInFile.length}媛? 李얠쓣 ?⑥뼱 ???먮룞 吏?뺣맖)`);
+      addLog(`✅ 엑셀 파일에서 ${newSentences.length}개 문장을 불러왔습니다. (출처 ${sourcesInFile.length}개, 찾을 단어 수 자동 지정됨)`);
     } catch (err: unknown) {
-      addLog(`???묒? ?뚯씪 ?쎄린 ?ㅽ뙣: ${(err as Error).message}`);
+      addLog(`❌ 엑셀 파일 읽기 실패: ${(err as Error).message}`);
     }
   };
 
-  // --- ?꾩껜 臾몄옣 遺꾨━ & 踰덉뿭 ---
+  // --- 전체 문장 분리 & 번역 ---
   const handleTranslateAll = async () => {
-    if (!apiKey) { alert('Settings?먯꽌 API Key瑜?癒쇱? ?ㅼ젙?댁＜?몄슂.'); return; }
+    if (!apiKey) { alert('Settings에서 API Key를 먼저 설정해주세요.'); return; }
     const activeSets = inputSets.filter((s) => s.englishText.trim() && s.sourceName.trim());
-    if (activeSets.length === 0) { alert('異쒖쿂? ?곷Ц ?띿뒪?몃? ?낅젰???명듃媛 ?놁뒿?덈떎.'); return; }
+    if (activeSets.length === 0) { alert('출처와 영문 텍스트를 입력한 세트가 없습니다.'); return; }
 
     setIsTranslating(true);
-    addLog(`?뱻 ${activeSets.length}媛??명듃 臾몄옣 遺꾨━ & 踰덉뿭 ?붿껌 以?..`);
+    addLog(`📡 ${activeSets.length}개 세트 문장 분리 & 번역 요청 중...`);
     let totalSentences = 0;
     try {
       for (const set of activeSets) {
-        addLog(`  ??[${set.sourceName}] 踰덉뿭 以?..`);
+        addLog(`  → [${set.sourceName}] 번역 중...`);
         const result = await splitAndTranslate(apiKey, set.englishText, set.sourceName, model);
         setSentences((prev) => [...prev, ...result]);
         totalSentences += result.length;
-        addLog(`  ??[${set.sourceName}] ${result.length}媛?臾몄옣 ?꾨즺`);
+        addLog(`  ✅ [${set.sourceName}] ${result.length}개 문장 완료`);
       }
-      addLog(`???꾩껜 ${totalSentences}媛?臾몄옣??遺꾨━ & 踰덉뿭?덉뒿?덈떎.`);
+      addLog(`✅ 전체 ${totalSentences}개 문장을 분리 & 번역했습니다.`);
       setInputSets((prev) =>
         prev.map((s) => (activeSets.find((a) => a.id === s.id) ? { ...s, englishText: '' } : s))
       );
     } catch (err: unknown) {
-      addLog(`???ㅻ쪟: ${(err as Error).message}`);
-      alert(`?ㅻ쪟: ${(err as Error).message}`);
+      addLog(`❌ 오류: ${(err as Error).message}`);
+      alert(`오류: ${(err as Error).message}`);
     } finally {
       setIsTranslating(false);
     }
   };
 
-  // --- ?⑥뼱 異붿텧 (Gemini) ---
+  // --- 단어 추출 (Gemini) ---
   const getWordsRangeBySource = useCallback(() => {
     const bySource: Record<string, string> = {};
     const setSourceNames = new Set(inputSets.map((s) => s.sourceName.trim()).filter(Boolean));
@@ -210,7 +211,7 @@ const InputTab: React.FC<InputTabProps> = ({
       const src = set.sourceName.trim();
       if (!src) continue;
       const val = set.wordsToFind.trim() || wordsRange;
-      if (val === '?먮룞') {
+      if (val === '자동') {
         const count = sentences.filter((s) => s.source === src).length;
         const max = count ? Math.min(Math.max(count * 2, count), 30) : 5;
         bySource[src] = count ? `${count}~${max}` : wordsRange;
@@ -232,18 +233,18 @@ const InputTab: React.FC<InputTabProps> = ({
   }, [inputSets, sourceWordsOverride, wordsRange, sentences]);
 
   const handleExtractWords = async () => {
-    if (!apiKey) { alert('Settings?먯꽌 API Key瑜?癒쇱? ?ㅼ젙?댁＜?몄슂.'); return; }
-    if (sentences.length === 0) { alert('癒쇱? 臾몄옣??遺꾨━?댁＜?몄슂.'); return; }
+    if (!apiKey) { alert('Settings에서 API Key를 먼저 설정해주세요.'); return; }
+    if (sentences.length === 0) { alert('먼저 문장을 분리해주세요.'); return; }
 
     const wordsRangeBySource = getWordsRangeBySource();
 
     setIsExtracting(true);
-    addLog(Object.keys(wordsRangeBySource).length > 0 ? '?뱻 Gemini?먭쾶 ?⑥뼱 異붿텧 ?붿껌 以?(異쒖쿂蹂??⑥뼱 ???곸슜)...' : '?뱻 Gemini?먭쾶 ?⑥뼱 異붿텧 ?붿껌 以?..');
+    addLog(Object.keys(wordsRangeBySource).length > 0 ? '📡 Gemini에게 단어 추출 요청 중 (출처별 단어 수 적용)...' : '📡 Gemini에게 단어 추출 요청 중...');
     try {
       const result = await extractWords(apiKey, sentences, wordsRange, model, Object.keys(wordsRangeBySource).length > 0 ? wordsRangeBySource : undefined);
       setWordList((prev) => [...prev, ...result]);
 
-      // 臾몄옣蹂?留ㅽ븨 ?낅뜲?댄듃
+      // 문장별 매핑 업데이트
       const newMap = mapWordsToSentences(result);
       setSentenceWordsMap((prev) => {
         const merged = { ...prev };
@@ -254,16 +255,16 @@ const InputTab: React.FC<InputTabProps> = ({
         return merged;
       });
 
-      addLog(`??${result.length}媛??⑥뼱瑜?異붿텧?덉뒿?덈떎!`);
+      addLog(`✅ ${result.length}개 단어를 추출했습니다!`);
     } catch (err: unknown) {
-      addLog(`???ㅻ쪟: ${(err as Error).message}`);
-      alert(`?ㅻ쪟: ${(err as Error).message}`);
+      addLog(`❌ 오류: ${(err as Error).message}`);
+      alert(`오류: ${(err as Error).message}`);
     } finally {
       setIsExtracting(false);
     }
   };
 
-  // --- Alt+1 ?섎룞 ?좏깮 ---
+  // --- Alt+1 수동 선택 ---
   const handleAltOne = useCallback(() => {
     const selection = window.getSelection();
     if (!selection || selection.isCollapsed) return;
@@ -271,11 +272,11 @@ const InputTab: React.FC<InputTabProps> = ({
     const selectedText = selection.toString().trim();
     if (!selectedText) return;
 
-    // ?대뼡 臾몄옣?먯꽌 ?좏깮?덈뒗吏 李얘린
+    // 어떤 문장에서 선택했는지 찾기
     const anchorNode = selection.anchorNode;
     if (!anchorNode) return;
 
-    // data-sentence-idx ?띿꽦?쇰줈 臾몄옣 ?몃뜳??李얘린
+    // data-sentence-idx 속성으로 문장 인덱스 찾기
     let el: HTMLElement | null =
       anchorNode.nodeType === Node.TEXT_NODE
         ? anchorNode.parentElement
@@ -295,7 +296,7 @@ const InputTab: React.FC<InputTabProps> = ({
       return;
     }
 
-    // ?대? 媛숈? ?⑥뼱+媛숈? 臾몄옣 議고빀???덉쑝硫?臾댁떆
+    // 이미 같은 단어+같은 문장 조합이 있으면 무시
     const exists = manualSelections.some(
       (m) =>
         m.word.toLowerCase() === selectedText.toLowerCase() &&
@@ -322,7 +323,8 @@ const InputTab: React.FC<InputTabProps> = ({
     selection.removeAllRanges();
   }, [sentences, manualSelections]);
 
-  // ?ㅻ낫???대깽??由ъ뒪??  useEffect(() => {
+  // 키보드 이벤트 리스너
+  useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if (e.altKey && e.key === '1') {
         e.preventDefault();
@@ -333,18 +335,18 @@ const InputTab: React.FC<InputTabProps> = ({
     return () => document.removeEventListener('keydown', handler);
   }, [handleAltOne]);
 
-  // --- ?섎룞 ?좏깮 ?⑥뼱 ??젣 ---
+  // --- 수동 선택 단어 삭제 ---
   const removeManualSelection = (id: number) => {
     setManualSelections((prev) => prev.filter((m) => m.id !== id));
   };
 
-  // --- ?섎룞 ?좏깮 ?⑥뼱 Gemini ?꾩넚 ---
+  // --- 수동 선택 단어 Gemini 전송 ---
   const handleSendManualToGemini = async () => {
-    if (!apiKey) { alert('Settings?먯꽌 API Key瑜?癒쇱? ?ㅼ젙?댁＜?몄슂.'); return; }
-    if (manualSelections.length === 0) { alert('?섎룞 ?좏깮???⑥뼱媛 ?놁뒿?덈떎.'); return; }
+    if (!apiKey) { alert('Settings에서 API Key를 먼저 설정해주세요.'); return; }
+    if (manualSelections.length === 0) { alert('수동 선택한 단어가 없습니다.'); return; }
 
     setIsSendingManual(true);
-    addLog(`?뱻 ?섎룞 ?좏깮 ${manualSelections.length}媛??⑥뼱 Gemini ?꾩넚 以?..`);
+    addLog(`📡 수동 선택 ${manualSelections.length}개 단어 Gemini 전송 중...`);
 
     try {
       const inputs: ManualWordInput[] = manualSelections.map((m) => ({
@@ -356,7 +358,7 @@ const InputTab: React.FC<InputTabProps> = ({
 
       const result = await getManualWordDetails(apiKey, inputs, model);
 
-      // 臾몄옣 ?쒖꽌?濡??뺣젹?댁꽌 wordList??異붽?
+      // 문장 순서대로 정렬해서 wordList에 추가
       const sortedResult = result.map((w, i) => ({
         ...w,
         _sentenceIdx: manualSelections[i]?.sentenceIdx ?? 999,
@@ -366,7 +368,7 @@ const InputTab: React.FC<InputTabProps> = ({
       const cleanResult: Word[] = sortedResult.map(({ _sentenceIdx: _, ...rest }) => rest);
       setWordList((prev) => [...prev, ...cleanResult]);
 
-      // 臾몄옣蹂?留ㅽ븨???낅뜲?댄듃
+      // 문장별 매핑도 업데이트
       setSentenceWordsMap((prev) => {
         const merged = { ...prev };
         for (let i = 0; i < cleanResult.length; i++) {
@@ -377,18 +379,18 @@ const InputTab: React.FC<InputTabProps> = ({
         return merged;
       });
 
-      addLog(`??${result.length}媛??⑥뼱 ?곸꽭?뺣낫瑜?諛쏆븯?듬땲?? ?몄쭛 ??뿉???뺤씤?섏꽭??`);
+      addLog(`✅ ${result.length}개 단어 상세정보를 받았습니다! 편집 탭에서 확인하세요.`);
       setManualSelections([]);
       onSwitchToEdit();
     } catch (err: unknown) {
-      addLog(`???ㅻ쪟: ${(err as Error).message}`);
-      alert(`?ㅻ쪟: ${(err as Error).message}`);
+      addLog(`❌ 오류: ${(err as Error).message}`);
+      alert(`오류: ${(err as Error).message}`);
     } finally {
       setIsSendingManual(false);
     }
   };
 
-  // --- 臾몄옣 愿由?---
+  // --- 문장 관리 ---
   const handleDeleteSentence = (idx: number) => {
     setSentences((prev) => prev.filter((_, i) => i !== idx));
     setSentenceWordsMap((prev) => {
@@ -400,28 +402,28 @@ const InputTab: React.FC<InputTabProps> = ({
   };
 
   const handleClearSentences = () => {
-    if (window.confirm('紐⑤뱺 臾몄옣????젣?섏떆寃좎뒿?덇퉴?')) {
+    if (window.confirm('모든 문장을 삭제하시겠습니까?')) {
       setSentences([]);
       setSentenceWordsMap({});
       setManualSelections([]);
       setIsEditingMode(false);
       setEditBuffer([]);
-      addLog('?뿊截?紐⑤뱺 臾몄옣????젣?덉뒿?덈떎.');
+      addLog('🗑️ 모든 문장을 삭제했습니다.');
     }
   };
 
-  // --- ?몄쭛 紐⑤뱶 ?좉? ---
+  // --- 편집 모드 토글 ---
   const handleToggleEdit = () => {
     if (!isEditingMode) {
-      // ?몄쭛 ?쒖옉: ?꾩옱 臾몄옣??踰꾪띁??蹂듭궗
+      // 편집 시작: 현재 문장을 버퍼에 복사
       setEditBuffer(sentences.map((s) => ({ ...s })));
       setIsEditingMode(true);
     } else {
-      // ?몄쭛 ?꾨즺: 踰꾪띁 ?댁슜??諛섏쁺
+      // 편집 완료: 버퍼 내용을 반영
       setSentences(editBuffer);
       setIsEditingMode(false);
       setEditBuffer([]);
-      addLog('??臾몄옣 ?몄쭛 ?댁슜??諛섏쁺?섏뿀?듬땲??');
+      addLog('✅ 문장 편집 내용이 반영되었습니다.');
     }
   };
 
@@ -431,9 +433,9 @@ const InputTab: React.FC<InputTabProps> = ({
     );
   };
 
-  // --- 臾몄옣 ?띿뒪?몄뿉???⑥뼱 ?섏씠?쇱씠??---
+  // --- 문장 텍스트에서 단어 하이라이트 ---
   const highlightWords = (text: string, sentenceIdx: number) => {
-    // ??臾몄옣?먯꽌 ?섎룞 ?좏깮???⑥뼱 + AI 異붿텧 ?⑥뼱
+    // 이 문장에서 수동 선택된 단어 + AI 추출 단어
     const manualWords = manualSelections
       .filter((m) => m.sentenceIdx === sentenceIdx)
       .map((m) => m.word);
@@ -442,7 +444,7 @@ const InputTab: React.FC<InputTabProps> = ({
     const allHighlightWords = [...new Set([...manualWords, ...aiWords])];
     if (allHighlightWords.length === 0) return <>{text}</>;
 
-    // ?뺢퇋?앹쑝濡??⑥뼱 留ㅼ묶 (??뚮Ц??臾댁떆)
+    // 정규식으로 단어 매칭 (대소문자 무시)
     const escaped = allHighlightWords.map((w) =>
       w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
     );
@@ -486,7 +488,7 @@ const InputTab: React.FC<InputTabProps> = ({
 
   return (
     <div style={{ padding: '20px', display: 'flex', flexDirection: 'column', height: '100%', boxSizing: 'border-box' }}>
-      {/* ?ㅼ젙 ?곸뿭 */}
+      {/* 설정 영역 */}
       <div
         style={{
           display: 'flex',
@@ -498,7 +500,7 @@ const InputTab: React.FC<InputTabProps> = ({
         }}
       >
         <div style={{ width: '220px' }}>
-          <label style={labelStyle}>?쨼 AI 紐⑤뜽</label>
+          <label style={labelStyle}>🤖 AI 모델</label>
           <select value={model} onChange={(e) => setModel(e.target.value)} style={inputStyle}>
             {GEMINI_MODELS.map((m) => (
               <option key={m} value={m}>{m}</option>
@@ -506,7 +508,7 @@ const InputTab: React.FC<InputTabProps> = ({
           </select>
         </div>
         <div style={{ width: '130px' }}>
-          <label style={labelStyle}>?뱤 ?⑥뼱 踰붿쐞</label>
+          <label style={labelStyle}>📊 단어 범위</label>
           <input
             type="text"
             value={wordsRange}
@@ -518,12 +520,12 @@ const InputTab: React.FC<InputTabProps> = ({
         <label
           style={{ ...btnStyle, background: 'linear-gradient(135deg, #F59E0B, #FBBF24)', cursor: 'pointer', display: 'inline-flex', alignItems: 'center' }}
         >
-          ?뱛 ?묒? 遺덈윭?ㅺ린
+          📂 엑셀 불러오기
           <input type="file" accept=".xlsx,.xls,.csv" onChange={handleFileUpload} style={{ display: 'none' }} />
         </label>
       </div>
 
-      {/* 異쒖쿂蹂?李얠쓣 ?⑥뼱 ??(?묒? ?? */}
+      {/* 출처별 찾을 단어 수 (엑셀 등) */}
       {(() => {
         const setSourceNames = new Set(inputSets.map((s) => s.sourceName.trim()).filter(Boolean));
         const excelOnlySources = [...new Set(sentences.map((s) => s.source))].filter((src) => !setSourceNames.has(src));
@@ -539,7 +541,7 @@ const InputTab: React.FC<InputTabProps> = ({
             }}
           >
             <h4 style={{ margin: '0 0 10px 0', fontSize: '14px', color: '#92400E' }}>
-              ?뱥 異쒖쿂蹂?李얠쓣 ?⑥뼱 ??(?묒? ?? ???먮룞 吏????議곗젙
+              📋 출처별 찾을 단어 수 (엑셀 등) — 자동 지정 후 조정
             </h4>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', alignItems: 'center' }}>
               {excelOnlySources.map((src) => {
@@ -551,7 +553,7 @@ const InputTab: React.FC<InputTabProps> = ({
                     <span style={{ fontSize: '12px', color: '#78350F', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={src}>
                       {src}
                     </span>
-                    <span style={{ fontSize: '11px', color: '#B45309' }}>({count}臾몄옣)</span>
+                    <span style={{ fontSize: '11px', color: '#B45309' }}>({count}문장)</span>
                     <input
                       type="text"
                       value={sourceWordsOverride[src] ?? ''}
@@ -567,9 +569,9 @@ const InputTab: React.FC<InputTabProps> = ({
         );
       })()}
 
-      {/* 硫붿씤 ?곸뿭 */}
+      {/* 메인 영역 */}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginBottom: '16px', flex: 1, minHeight: 0 }}>
-        {/* === ?쇱そ: ?낅젰 ?명듃 紐⑸줉 === */}
+        {/* === 왼쪽: 입력 세트 목록 === */}
         <div
           style={{
             border: '2px solid #E5E7EB',
@@ -581,7 +583,7 @@ const InputTab: React.FC<InputTabProps> = ({
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <h3 style={{ margin: 0, color: '#6D28D9', fontSize: '16px' }}>
-              ?륅툘 ?곷Ц ?낅젰 ({inputSets.length}?명듃)
+              ✏️ 영문 입력 ({inputSets.length}세트)
             </h3>
             <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
               <button
@@ -594,13 +596,13 @@ const InputTab: React.FC<InputTabProps> = ({
                   fontSize: '12px', padding: '5px 10px',
                 }}
               >
-                ?명듃蹂??먮룞 怨꾩궛
+                세트별 자동 계산
               </button>
               <button
                 onClick={handleAddSet}
                 style={{ ...btnStyle, background: 'linear-gradient(135deg, #6366F1, #818CF8)', padding: '7px 16px', fontSize: '14px' }}
               >
-                ???곷Ц 異붽?
+                ➕ 영문 추가
               </button>
             </div>
           </div>
@@ -625,7 +627,7 @@ const InputTab: React.FC<InputTabProps> = ({
                     type="text"
                     value={set.sourceName}
                     onChange={(e) => updateSet(set.id, 'sourceName', e.target.value)}
-                    placeholder="異쒖쿂 (?? 怨? 2025??10??36踰?"
+                    placeholder="출처 (예: 고2 2025년 10월 36번)"
                     style={{ ...inputStyle, flex: 1, padding: '6px 10px', fontSize: '13px' }}
                   />
                   {inputSets.length > 1 && (
@@ -633,27 +635,29 @@ const InputTab: React.FC<InputTabProps> = ({
                       onClick={() => handleRemoveSet(set.id)}
                       style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: '#EF4444', padding: '2px 6px' }}
                     >
-                      ??                    </button>
+                      ✕
+                    </button>
                   )}
                 </div>
                 <textarea
                   value={set.englishText}
                   onChange={(e) => updateSet(set.id, 'englishText', e.target.value)}
-                  placeholder="?ш린???곸뼱 吏臾몄쓣 遺숈뿬?ｊ린 ?섏꽭??.."
+                  placeholder="여기에 영어 지문을 붙여넣기 하세요..."
                   rows={6}
                   style={{
                     width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E7EB',
-                    fontSize: '14px', lineHeight: '1.7', resize: 'vertical', fontFamily: "'Noto Sans KR', sans-serif", color: '#1F2937',
+                    fontSize: '14px', lineHeight: '1.7', resize: 'vertical', fontFamily: "'Noto Sans KR', sans-serif", color: '#1F2937', backgroundColor: 'white',
                   }}
                 />
                 <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                   <label style={{ fontSize: '12px', color: '#6B7280', fontWeight: 600, flexShrink: 0 }}>
-                    李얠쓣 ?⑥뼱 ??                  </label>
+                    찾을 단어 수
+                  </label>
                   <input
                     type="text"
                     value={set.wordsToFind}
                     onChange={(e) => updateSet(set.id, 'wordsToFind', e.target.value)}
-                    placeholder="5~10 ?먮뒗 ?먮룞"
+                    placeholder="5~10 또는 자동"
                     style={{
                       ...inputStyle,
                       width: '100px', padding: '5px 8px', fontSize: '13px',
@@ -661,7 +665,7 @@ const InputTab: React.FC<InputTabProps> = ({
                   />
                   {set.sourceName.trim() && (
                     <span style={{ fontSize: '11px', color: '#9CA3AF' }}>
-                      {sentences.filter((s) => s.source === set.sourceName.trim()).length}臾몄옣
+                      {sentences.filter((s) => s.source === set.sourceName.trim()).length}문장
                     </span>
                   )}
                 </div>
@@ -680,13 +684,13 @@ const InputTab: React.FC<InputTabProps> = ({
               }}
             >
               {isTranslating
-                ? '??踰덉뿭 以?..'
-                : `?뙋 ?꾩껜 臾몄옣 遺꾨━ & 踰덉뿭 (${inputSets.filter((s) => s.englishText.trim() && s.sourceName.trim()).length}?명듃)`}
+                ? '⏳ 번역 중...'
+                : `🌐 전체 문장 분리 & 번역 (${inputSets.filter((s) => s.englishText.trim() && s.sourceName.trim()).length}세트)`}
             </button>
           </div>
         </div>
 
-        {/* === ?ㅻⅨ履? 遺꾨━??臾몄옣 + ?⑥뼱 ?쒖떆 === */}
+        {/* === 오른쪽: 분리된 문장 + 단어 표시 === */}
         <div
           style={{
             border: '2px solid #E5E7EB',
@@ -700,7 +704,7 @@ const InputTab: React.FC<InputTabProps> = ({
             overflow: 'hidden',
           }}
         >
-          {/* ?섎룞 ?좏깮 ?⑥뼱 諛뺤뒪 */}
+          {/* 수동 선택 단어 박스 */}
           {manualSelections.length > 0 && (
             <div
               style={{
@@ -713,7 +717,7 @@ const InputTab: React.FC<InputTabProps> = ({
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
                 <h4 style={{ margin: 0, color: '#92400E', fontSize: '13px' }}>
-                  ???섎룞 ?좏깮 ?⑥뼱 ({manualSelections.length}媛?
+                  ✋ 수동 선택 단어 ({manualSelections.length}개)
                 </h4>
                 <div style={{ display: 'flex', gap: '6px' }}>
                   <button
@@ -725,13 +729,14 @@ const InputTab: React.FC<InputTabProps> = ({
                       padding: '6px 14px', fontSize: '12px',
                     }}
                   >
-                    {isSendingManual ? '???꾩넚 以?..' : '?? Gemini ?꾩넚'}
+                    {isSendingManual ? '⏳ 전송 중...' : '🚀 Gemini 전송'}
                   </button>
                   <button
                     onClick={() => setManualSelections([])}
                     style={{ ...btnSmallStyle, background: '#EF4444' }}
                   >
-                    ?뿊截?鍮꾩슦湲?                  </button>
+                    🗑️ 비우기
+                  </button>
                 </div>
               </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
@@ -762,25 +767,27 @@ const InputTab: React.FC<InputTabProps> = ({
                         color: '#DC2626', fontSize: '12px', padding: '0 2px', lineHeight: 1,
                       }}
                     >
-                      ??                    </button>
+                      ✕
+                    </button>
                   </span>
                 ))}
               </div>
             </div>
           )}
 
-          {/* ?ㅻ뜑 */}
+          {/* 헤더 */}
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <h3 style={{ margin: 0, color: '#2563EB', fontSize: '16px' }}>
-              ?뱥 遺꾨━??臾몄옣 ({sentences.length}媛?
+              📋 분리된 문장 ({sentences.length}개)
               {sentences.length > 0 && !isEditingMode && (
                 <span style={{ fontSize: '11px', color: '#9CA3AF', fontWeight: 'normal', marginLeft: '8px' }}>
-                  ?뮕 ?쒕옒洹?+ Alt+1濡??⑥뼱 ?섎룞 ?좏깮
+                  💡 드래그 + Alt+1로 단어 수동 선택
                 </span>
               )}
               {isEditingMode && (
                 <span style={{ fontSize: '11px', color: '#F59E0B', fontWeight: 'normal', marginLeft: '8px' }}>
-                  ?륅툘 ?몄쭛 以?.. ?꾨즺 ??踰꾪듉???ㅼ떆 ?뚮윭二쇱꽭??                </span>
+                  ✏️ 편집 중... 완료 후 버튼을 다시 눌러주세요
+                </span>
               )}
             </h3>
             <div style={{ display: 'flex', gap: '6px' }}>
@@ -796,7 +803,7 @@ const InputTab: React.FC<InputTabProps> = ({
                       : 'linear-gradient(135deg, #3B82F6, #60A5FA)',
                 }}
               >
-                {isEditingMode ? '???몄쭛 ?꾨즺' : '?륅툘 ?몄쭛'}
+                {isEditingMode ? '✅ 편집 완료' : '✏️ 편집'}
               </button>
               <button
                 onClick={handleClearSentences}
@@ -806,12 +813,12 @@ const InputTab: React.FC<InputTabProps> = ({
                   background: sentences.length === 0 || isEditingMode ? '#D1D5DB' : '#EF4444',
                 }}
               >
-                ?뿊截??꾩껜 ??젣
+                🗑️ 전체 삭제
               </button>
             </div>
           </div>
 
-          {/* 臾몄옣 由ъ뒪??*/}
+          {/* 문장 리스트 */}
           <div
             ref={sentenceAreaRef}
             style={{
@@ -825,9 +832,10 @@ const InputTab: React.FC<InputTabProps> = ({
           >
             {sentences.length === 0 ? (
               <div style={{ padding: '40px', textAlign: 'center', color: '#9CA3AF' }}>
-                臾몄옣 遺꾨━ 寃곌낵媛 ?ш린???쒖떆?⑸땲??              </div>
+                문장 분리 결과가 여기에 표시됩니다
+              </div>
             ) : isEditingMode ? (
-              /* === ?몄쭛 紐⑤뱶 === */
+              /* === 편집 모드 === */
               editBuffer.map((s, idx) => (
                 <div
                   key={idx}
@@ -881,7 +889,7 @@ const InputTab: React.FC<InputTabProps> = ({
                 </div>
               ))
             ) : (
-              /* === ?쇰컲 紐⑤뱶 === */
+              /* === 일반 모드 === */
               sentences.map((s, idx) => {
                 const wordsForSentence = sentenceWordsMap[idx] || [];
                 const manualForSentence = manualSelections.filter((m) => m.sentenceIdx === idx);
@@ -917,7 +925,7 @@ const InputTab: React.FC<InputTabProps> = ({
                           [{s.source}]
                         </div>
 
-                        {/* AI 異붿텧 ?⑥뼱 ?쒓렇 */}
+                        {/* AI 추출 단어 태그 */}
                         {wordsForSentence.length > 0 && (
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '6px' }}>
                             {wordsForSentence.map((w, wIdx) => (
@@ -943,7 +951,7 @@ const InputTab: React.FC<InputTabProps> = ({
                           </div>
                         )}
 
-                        {/* ?섎룞 ?좏깮 ?⑥뼱 ?쒓렇 */}
+                        {/* 수동 선택 단어 태그 */}
                         {manualForSentence.length > 0 && (
                           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '4px', marginTop: '4px' }}>
                             {manualForSentence.map((m) => (
@@ -959,7 +967,7 @@ const InputTab: React.FC<InputTabProps> = ({
                                   fontWeight: 'bold',
                                 }}
                               >
-                                ??{m.word}
+                                ✋ {m.word}
                               </span>
                             ))}
                           </div>
@@ -973,7 +981,8 @@ const InputTab: React.FC<InputTabProps> = ({
                           fontSize: '14px', color: '#EF4444', padding: '2px 6px',
                         }}
                       >
-                        ??                      </button>
+                        ✕
+                      </button>
                     </div>
                   </div>
                 );
@@ -983,7 +992,7 @@ const InputTab: React.FC<InputTabProps> = ({
         </div>
       </div>
 
-      {/* ?⑥뼱 異붿텧 踰꾪듉 */}
+      {/* 단어 추출 버튼 */}
       <div
         style={{
           display: 'flex', alignItems: 'center', gap: '16px', padding: '16px',
@@ -1000,18 +1009,20 @@ const InputTab: React.FC<InputTabProps> = ({
             fontSize: '17px', padding: '13px 30px',
           }}
         >
-          {isExtracting ? '???⑥뼱 異붿텧 以?..' : '?뵇 ?⑥뼱 異붿텧?섍린'}
+          {isExtracting ? '⏳ 단어 추출 중...' : '🔍 단어 추출하기'}
         </button>
         <div style={{ color: '#4B5563', fontSize: '15px' }}>
-          <strong>{sentences.length}</strong>媛?臾몄옣?먯꽌 異쒖쿂蹂??⑥뼱 ?섎줈 異붿텧 ??' '}
-          <strong>{wordList.length}</strong>媛?異붿텧??          {manualSelections.length > 0 && (
+          <strong>{sentences.length}</strong>개 문장에서 출처별 단어 수로 추출 →{' '}
+          <strong>{wordList.length}</strong>개 추출됨
+          {manualSelections.length > 0 && (
             <span style={{ color: '#F59E0B', marginLeft: '12px' }}>
-              + ???섎룞 {manualSelections.length}媛??湲?以?            </span>
+              + ✋ 수동 {manualSelections.length}개 대기 중
+            </span>
           )}
         </div>
       </div>
 
-      {/* 濡쒓렇 */}
+      {/* 로그 */}
       {log && (
         <div
           style={{
@@ -1027,13 +1038,13 @@ const InputTab: React.FC<InputTabProps> = ({
   );
 };
 
-// ?ㅽ????곸닔
+// 스타일 상수
 const labelStyle: React.CSSProperties = {
   display: 'block', marginBottom: '4px', fontSize: '14px', fontWeight: 'bold', color: '#374151',
 };
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '9px 13px', borderRadius: '8px', border: '1px solid #D1D5DB',
-  fontSize: '15px', fontFamily: "'Noto Sans KR', sans-serif", color: '#1F2937',
+  fontSize: '15px', fontFamily: "'Noto Sans KR', sans-serif", color: '#1F2937', backgroundColor: 'white',
 };
 const btnStyle: React.CSSProperties = {
   padding: '11px 22px', borderRadius: '8px', border: 'none', color: 'white',

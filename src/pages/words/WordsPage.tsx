@@ -137,6 +137,7 @@ const WordsPage: React.FC = () => {
 
       {/* 탭 컨텐츠 */}
       <div
+        className="words-page-content"
         style={{
           flex: 1,
           background: 'white',

@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import type { Word, QuizConfig, QuizQuestion } from '../../types/words';
 import {
   shuffle,
@@ -724,4 +724,3 @@ function generateQuizHtml(
 }
 
 export default QuizTab;
-

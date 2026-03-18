@@ -1,4 +1,4 @@
-﻿import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import type { Word, Sentence, QuizQuestion, QuizType, QuizConfig, DirectReadSentence } from '../../types/words';
 import {
   DEFAULT_QUIZ_CONFIGS,
@@ -889,4 +889,3 @@ function generateAnalysisSection(wordList: Word[], sentences: Sentence[]): strin
 }
 
 export default ComprehensiveTab;
-

@@ -1,4 +1,4 @@
-﻿import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import type { Word, Sentence, DirectReadSentence, DirectReadJsonData } from '../../types/words';
 import { getSettings } from '../../lib/store';
 import { generateDirectReadAnalysis } from '../../lib/wordsGemini';
@@ -710,5 +710,3 @@ const DirectReadTab: React.FC<DirectReadTabProps> = ({
 };
 
 export default DirectReadTab;
-
-

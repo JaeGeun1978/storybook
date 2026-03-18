@@ -30,6 +30,27 @@ body {
   -moz-osx-font-smoothing: grayscale;
 }
 
+/* ===== Words Page Form Elements Fix ===== */
+.words-page-content input,
+.words-page-content select,
+.words-page-content textarea,
+.words-page-content option {
+  color: #1F2937 !important;
+  background-color: white;
+}
+.words-page-content input::placeholder,
+.words-page-content textarea::placeholder {
+  color: #9CA3AF !important;
+}
+.words-page-content label,
+.words-page-content span,
+.words-page-content p,
+.words-page-content h2,
+.words-page-content h3,
+.words-page-content div {
+  color: inherit;
+}
+
 /* ===== Scrollbar ===== */
 ::-webkit-scrollbar {
   width: 6px;

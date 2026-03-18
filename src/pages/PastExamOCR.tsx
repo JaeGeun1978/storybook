@@ -524,7 +524,7 @@ const AnalysisModal: React.FC<{
   isLoading: boolean;
 }> = ({ isOpen, onClose, data, examName, isLoading }) => {
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
-  const [isPdfGenerating, setIsPdfGenerating] = useState(false);
+  const [isPdfGenerating, _setIsPdfGenerating] = useState(false);
   const contentRef = useRef<HTMLDivElement>(null);
 
   if (!isOpen) return null;

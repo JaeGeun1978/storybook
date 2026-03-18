@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { LayoutDashboard, Settings, BookOpen, Menu, X, ScanSearch } from 'lucide-react';
+import { LayoutDashboard, Settings, BookOpen, Menu, X, ScanSearch, BookText } from 'lucide-react';
 
 export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
@@ -56,6 +56,13 @@ export const Layout: React.FC<{ children: React.ReactNode }> = ({ children }) =>
             icon={<ScanSearch size={18} />}
             label="기출문제OCR"
             active={isActive('/past-exam-ocr')}
+            onClick={() => setSidebarOpen(false)}
+          />
+          <NavLink
+            to="/words"
+            icon={<BookText size={18} />}
+            label="단어장"
+            active={isActive('/words')}
             onClick={() => setSidebarOpen(false)}
           />
           <NavLink

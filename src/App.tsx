@@ -7,6 +7,7 @@ import { DiaryEditorPage } from './pages/DiaryEditor';
 import { ExamEditorPage } from './pages/ExamEditor';
 import { PassageEditorPage } from './pages/PassageEditor';
 import { PastExamOCRPage } from './pages/PastExamOCR';
+import WordsPage from './pages/words/WordsPage';
 import { useEffect, useState } from 'react';
 import { getSettings } from './lib/store';
 import { ApiKeyModal } from './components/ApiKeyModal';
@@ -48,6 +49,7 @@ function AppRoutes() {
           <Route path="/exam/:id" element={<ExamEditorPage />} />
           <Route path="/passage/:id" element={<PassageEditorPage />} />
           <Route path="/past-exam-ocr" element={<PastExamOCRPage />} />
+          <Route path="/words" element={<WordsPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

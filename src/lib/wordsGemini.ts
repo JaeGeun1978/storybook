@@ -107,8 +107,9 @@ export async function generateSpeechAudio(
   return new Blob([byteArr], { type: mimeType });
 }
 
-// Gemini 모델 목록
+// Gemini 모델 목록 (기본은 WordBook(words)과 동일하게 2.5-flash 우선)
 export const GEMINI_MODELS = [
+  'gemini-2.5-flash',
   'gemini-2.0-flash',
   'gemini-2.0-flash-lite',
   'gemini-1.5-pro',
@@ -423,14 +424,146 @@ ${wordList}
 }
 
 /**
- * 직독직해 + 문법태그 + 문장성분 (prompt.md 기반 고도화)
+ * D:\\project\\words 의 WordBook._build_chunking_prompt 와 동일한 시스템 프롬프트 (영문).
+ * 토큰 개수에 맞춰 OUTPUT FORMAT 의 배열 길이만 삽입합니다.
+ */
+function buildDirectReadSystemPrompt(tokenCount: number): string {
+  return `You are an expert in Korean-style "Jikdokjikhae" (직독직해) and English grammar analysis for Korean high school students.
+
+## TASK 1: CHUNKING (직독직해)
+Read English left-to-right, translating chunk by chunk into Korean.
+
+### Chunking Rules:
+1. EMPTY STRING ("") for: articles (a/an/the), prepositions (in/of/to/for/by/with/at/on/from), relative pronouns (who/which/that), subordinating conjunctions, punctuation, auxiliary/linking verbs (is/are/was/were/be/been)
+2. TRANSLATE every content word (nouns, verbs, adjectives, adverbs) with 1-3 Korean words
+3. TRANSLATE coordinating conjunctions: and→그리고, but→하지만, or→또는, so→그래서
+4. Place Korean on the KEY word of a phrase, include particles (에/을/를/은/는/이/가/의) in the content word
+5. Preposition meanings merge INTO the noun: "in the city" → ["","","도시에서"], "of science" → ["","과학의"]
+6. Match Korean particles precisely: Subject(은/는/이/가), Object(을/를), Location(에/에서), Direction(으로), Possession(의)
+
+### Chunking Examples:
+Tokens: ["The","book","that","I","read","yesterday","was","very","interesting"]
+Chunking: ["","책은","","내가","읽은","어제","","매우","흥미로웠다"]
+
+Tokens: ["People","living","in","large","cities","often","feel","lonely"]
+Chunking: ["사람들은","사는","","큰","도시에","자주","느낀다","외로움을"]
+
+## TASK 2: SENTENCE PATTERN LABELS (문장 성분 표시 - 1~5형식 기반)
+Mark the main clause's sentence elements on the HEAD WORD of each element.
+
+### main_sv Rules:
+- "S" for the MAIN subject (head noun of the subject phrase)
+- "V" for the MAIN finite verb (principal verb of the main clause)
+- "O" for object (3형식의 목적어, 5형식의 목적어)
+- "IO" for INDIRECT object (4형식에서만! 간접목적어 — 사람/대상)
+- "DO" for DIRECT object (4형식에서만! 직접목적어 — 사물)
+- "C" for SUBJECT complement (2형식의 주격보어)
+- "OC" for OBJECT complement (5형식의 목적격보어)
+- EMPTY STRING "" for everything else (articles, prepositions, adverbs, adjectives, etc.)
+- ⚠️ Do NOT mark quasi-verbs (준동사) as "V":
+  - Participles used as adjectives (e.g., "living" in "People living in cities") → ""
+  - Gerunds (e.g., "swimming" in "Swimming is fun") → mark as "S" if it's the subject, NOT "V"
+  - To-infinitives (e.g., "to think" in "It is difficult to think") → ""
+  - Past participles in passive voice: mark the auxiliary (was/is) + past participle as "V" on the MAIN verb
+- For compound sentences with multiple clauses, mark labels for the MAIN clause only
+- Mark ONLY the head word of each element (not modifiers, determiners, etc.)
+
+### ⚠️ IMPORTANT - IO/DO는 4형식에서만 사용!
+- 3형식: 목적어는 반드시 "O" (DO가 아님!)
+- 4형식: 간접목적어 "IO" + 직접목적어 "DO" (4형식에서만 IO/DO 구분!)
+- 5형식: 목적어는 반드시 "O" (DO가 아님!), 목적격보어는 "OC"
+
+### 5 Sentence Patterns (문장 5형식):
+- 1형식 (S+V): "Birds fly" → S=Birds, V=fly
+- 2형식 (S+V+C): "She is beautiful" → S=She, V=is, C=beautiful
+- 3형식 (S+V+O): "I like apples" → S=I, V=like, O=apples
+- 4형식 (S+V+IO+DO): "He gave me a book" → S=He, V=gave, IO=me, DO=book
+- 5형식 (S+V+O+OC): "They made him happy" → S=They, V=made, O=him, OC=happy
+
+### main_sv Examples:
+"The book that I read yesterday was very interesting"
+→ ["","S","","","","","V","","C"]  (book=S, was=V, interesting=C — 2형식)
+
+"People living in large cities often feel lonely"
+→ ["S","","","","","","V","C"]  (People=S, feel=V, lonely=C — 2형식)
+
+"Having finished the work, he went home"
+→ ["","","","","S","V",""]  (he=S, went=V — 1형식)
+
+"It is difficult to think simultaneously"
+→ ["S","V","C","","",""]  (It=S, is=V, difficult=C — 2형식)
+
+"She gave him a present"
+→ ["S","V","IO","","DO"]  (She=S, gave=V, him=IO, present=DO — 4형식)
+
+"The teacher considered the student brilliant"
+→ ["","S","V","","O","OC"]  (teacher=S, considered=V, student=O, brilliant=OC — 5형식)
+
+"Many students study English every day"
+→ ["","S","V","O","",""]  (students=S, study=V, English=O — 3형식)
+
+## TASK 3: GRAMMAR TAGS (문법태그) - 어려운 문법 포인트만 (0~2개)
+Attach grammar explanation to KEY words. ONLY for DIFFICULT/COMPLEX grammar that Korean high school students would struggle with.
+
+### Grammar Tag Rules:
+- SIMPLE/EASY sentences: ALL empty strings "" — NO tags at all!
+- DIFFICULT grammar only: 0-2 tags MAX per sentence
+- If no difficult grammar exists, ALL empty strings "" (no tags needed)
+- Tag should be 30-50 Korean characters — include: 구문명 + 해당 구문이 문장에서 어떻게 쓰였는지 자세한 설명
+- Format: "구문명: 자세한 설명" (use colon separator)
+- Explain clearly enough for a Korean high school student to fully understand
+- Focus ONLY on grammar points that students commonly get wrong or find confusing
+- Do NOT tag: basic S+V+O structures, simple tenses, basic conjunctions, simple comparatives
+
+### What counts as DIFFICULT grammar:
+- 관계대명사/관계부사 (특히 생략, 계속적 용법)
+- 분사구문 (현재/과거분사, 독립분사구문)
+- 가정법 (과거, 과거완료, 혼합가정법)
+- 도치 구문
+- 강조구문 (It is ~ that)
+- 동격 that절
+- 가주어/가목적어 구문
+- 복잡한 to부정사/동명사 용법
+- with + O + C 구문
+- 복합관계사
+
+### Grammar Tag Examples (detailed 30-50 chars):
+Simple: "I like apples" → ["","",""]
+Simple: "She went to school" → ["","","","",""]
+Simple: "The weather is nice today" → ["","","","",""] (어려운 문법 없음 → 모두 빈 문자열)
+
+Complex: "The book that I read was interesting"
+→ ["","","관계대명사 that: 목적격 관계대명사로 'I read'의 목적어 역할, book을 수식하며 생략 가능","","","","",""]
+
+Complex: "Having finished the work, he went home"
+→ ["분사구문: Having p.p 형태로 주절보다 앞선 시간을 나타내는 완료 분사구문, '일을 끝낸 후에'라는 뜻","","","","","","",""]
+
+Complex: "If I had studied harder, I would have passed the exam"
+→ ["","","가정법 과거완료: If+had p.p, would have p.p 구조로 과거 사실의 반대를 가정하는 표현","","","","","","","",""]
+
+Complex: "Not only did he win, but he also set a new record"
+→ ["부정어 도치: Not only가 문두에 와서 주어-동사 도치(did he)가 발생, 강조 표현","","","","","","","","","",""]
+
+Complex: "Written in plain English, the book was easy to read"
+→ ["과거분사구문: 수동 의미의 분사구문으로 'the book이 쓰여진' 상태를 나타냄, Being이 생략된 형태","","","","","","","",""]
+
+## OUTPUT FORMAT:
+Return a JSON object:
+{"chunking": [...], "grammar_tags": [...], "main_sv": [...]}
+
+All three arrays MUST have exactly ${tokenCount} elements.
+IMPORTANT: Return ONLY the JSON object. No explanation.`;
+}
+
+/**
+ * 직독직해 + 문법태그 + 문장성분 (WordBook words/main.py `_build_chunking_prompt` / `_build_user_prompt` 와 동일 계열)
  * 문장 1개 분량의 토큰 배열을 받아 chunking, grammar_tags, main_sv 배열을 반환
  * sentenceEn, sentenceKr 은 참고 해석으로 전달 시 품질 향상
  */
 export async function generateDirectReadAnalysis(
   apiKey: string,
   tokens: string[],
-  model: string = 'gemini-2.0-flash',
+  model: string = 'gemini-2.5-flash',
   sentenceEn?: string,
   sentenceKr?: string
 ): Promise<DirectReadSentence> {
@@ -438,83 +571,13 @@ export async function generateDirectReadAnalysis(
     return { chunking: [], main_sv: [], grammar_tags: [] };
   }
 
-  const systemPrompt = `당신은 한국 고등학생용 직독직해(직역·해석) 및 영어 문법 분석 전문가입니다. 아래 세 가지 작업만 수행하고, 반드시 JSON만 반환하세요.
-
-═══════════════════════════════════════════════════════════════
-TASK 1: CHUNKING (직독직해)
-═══════════════════════════════════════════════════════════════
-목적: 영어 문장을 왼쪽에서 오른쪽으로 읽을 때, 각 토큰에 대응하는 한글 직역을 생성합니다.
-
-규칙:
-1) 빈 문자열 "" 처리 대상: 관사(a, an, the), 전치사(in, of, to, for, by, with, at, on, from 등), 관계대명사(who, which, that), 종속접속사, 구두점, 조동사/연결동사(is, are, was, were, be, been).
-2) 내용어: 명사·동사·형용사·부사는 1~3개의 한글 단어로 번역.
-3) 등위접속사: and→그리고, but→하지만, or→또는, so→그래서.
-4) 조사 포함: 핵심 단어에 한글 조사를 붙임. 주어(은/는/이/가), 목적어(을/를), 장소(에/에서), 방향(으로), 소유(의).
-5) 전치사 의미 병합: 전치사 뜻은 뒤 명사에 합침. "in the city" → ["","","도시에서"], "of science" → ["","과학의"].
-6) 조사 정확성: 문맥에 맞게 주어는 은/는/이/가, 목적어는 을/를, 장소는 에/에서, 방향은 으로, 소유는 의.
-
-예시 1:
-Tokens: ["The","book","that","I","read","yesterday","was","very","interesting"]
-Chunking: ["","책은","","내가","읽은","어제","","매우","흥미로웠다"]
-
-예시 2:
-Tokens: ["People","living","in","large","cities","often","feel","lonely"]
-Chunking: ["사람들은","사는","","큰","도시에","자주","느낀다","외로움을"]
-
-═══════════════════════════════════════════════════════════════
-TASK 2: SENTENCE PATTERN LABELS (main_sv)
-═══════════════════════════════════════════════════════════════
-목적: 주절의 문장 성분을 각 성분의 핵심 단어에만 표시. 문장 5형식 기준.
-
-라벨: "S"=주어, "V"=동사, "O"=목적어(3·5형식), "IO"=간접목적어(4형식만), "DO"=직접목적어(4형식만), "C"=주격보어(2형식), "OC"=목적격보어(5형식), ""=그 외 전부.
-
-중요 규칙:
-- 준동사는 "V"로 표시하지 않음: 분사(People living...의 living)→"", 동명사·to부정사→"". 수동태는 be동사에 "V".
-- IO/DO는 4형식에서만. 3형식·5형식 목적어는 반드시 "O"(DO 사용 금지).
-- 주절만 표시, 각 성분의 핵심 단어만 표시(수식어·한정사 제외).
-
-5형식: 1형식 S+V, 2형식 S+V+C, 3형식 S+V+O, 4형식 S+V+IO+DO, 5형식 S+V+O+OC.
-
-예시:
-"The book that I read yesterday was very interesting" (2형식) → ["","S","","","","","V","","C"]
-"People living in large cities often feel lonely" (2형식) → ["S","","","","","","V","C"]
-"Having finished the work, he went home" (1형식) → ["","","","","S","V",""]
-"It is difficult to think simultaneously" (2형식 가주어) → ["S","V","C","","",""]
-"She gave him a present" (4형식) → ["S","V","IO","","DO"]
-"The teacher considered the student brilliant" (5형식) → ["","S","V","","O","OC"]
-"Many students study English every day" (3형식) → ["","S","V","O","",""]
-
-═══════════════════════════════════════════════════════════════
-TASK 3: GRAMMAR TAGS (grammar_tags)
-═══════════════════════════════════════════════════════════════
-목적: 한국 고등학생이 어려워할 복잡한 문법만 선별. 문장당 0~2개, 30~50자(한글). 형식: "구문명: 자세한 설명".
-
-태그 안 함: 기본 S+V+O, 단순 시제, 기본 접속사, 단순 비교급 → 해당 토큰은 모두 "".
-
-태그 함: 관계대명사/관계부사(생략·계속적 용법), 분사구문(현재/과거·독립분사), 가정법, 도치, 강조(It is~that), 동격 that절, 가주어/가목적어, 복잡한 to부정사/동명사, with+O+C, 복합관계사.
-
-간단한 문장 예(전부 ""): "I like apples", "She went to school", "The weather is nice today"
-
-복잡한 문장 예(해당 토큰에만 태그):
-"The book that I read was interesting" → "that"에 "관계대명사 that: 목적격 관계대명사로 'I read'의 목적어 역할, book을 수식하며 생략 가능"
-"Having finished the work, he went home" → "Having"에 "분사구문: Having p.p 형태로 주절보다 앞선 시간을 나타내는 완료 분사구문"
-"If I had studied harder, I would have passed the exam" → "had"에 "가정법 과거완료: If+had p.p, would have p.p 구조로 과거 사실의 반대 가정"
-"Not only did he win, but he also set a new record" → "Not"에 "부정어 도치: Not only가 문두에 와서 주어-동사 도치(did he) 발생"
-"Written in plain English, the book was easy to read" → "Written"에 "과거분사구문: 수동 의미로 'the book이 쓰여진' 상태, Being 생략 형태"
-
-═══════════════════════════════════════════════════════════════
-출력 형식
-═══════════════════════════════════════════════════════════════
-JSON만 반환. 키: chunking, main_sv, grammar_tags. 세 배열 길이는 반드시 토큰 리스트와 동일. 설명·마크다운 없음.`;
-
-  const refKr = sentenceKr?.trim() ? `\n참고 해석: ${sentenceKr}` : '';
+  const systemPrompt = buildDirectReadSystemPrompt(tokens.length);
+  const refKr = sentenceKr?.trim() ? `\n참고 해석: ${sentenceKr.trim()}` : '';
   const userPrompt = `영어 문장: ${sentenceEn ?? tokens.join(' ')}
 토큰 리스트: ${JSON.stringify(tokens)}${refKr}
 
-위 토큰 리스트의 각 토큰에 대한 직독직해(chunking), 문장 성분(main_sv), 문법태그(grammar_tags)를 JSON 객체로 반환하세요.
-세 배열 모두 길이가 반드시 ${tokens.length}개여야 합니다.
-
-Respond with valid JSON only: {"chunking": [...], "main_sv": [...], "grammar_tags": [...]}`;
+위 토큰 리스트의 각 토큰에 대한 직독직해(chunking)와 문법태그(grammar_tags)를 JSON 객체로 반환하세요.
+세 배열 모두 길이가 반드시 ${tokens.length}개여야 합니다.`;
 
   const fullPrompt = `${systemPrompt}\n\n${userPrompt}`;
 

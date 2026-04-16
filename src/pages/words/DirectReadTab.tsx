@@ -1,7 +1,7 @@
 import React, { useCallback, useRef, useState } from 'react';
-import type { Word, Sentence, DirectReadSentence, DirectReadJsonData } from '../../types/words';
 import { getSettings } from '../../lib/store';
-import { generateDirectReadAnalysis } from '../../lib/wordsGemini';
+import type { Word, Sentence, DirectReadSentence, DirectReadJsonData } from '../../types/words';
+import { generateDirectReadAnalysis, GEMINI_MODELS } from '../../lib/wordsGemini';
 
 interface DirectReadTabProps {
   sentences: Sentence[];
@@ -156,9 +156,9 @@ const DirectReadTab: React.FC<DirectReadTabProps> = ({
   setSentenceAnalyses,
   setSentences,
 }) => {
-  void _wordList; // used by parent
   const apiKey = getSettings().geminiApiKey;
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [geminiModel, setGeminiModel] = useState(GEMINI_MODELS[0]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [editingIndex, setEditingIndex] = useState<number | null>(null);
   const [draftAnalysis, setDraftAnalysis] = useState<DirectReadSentence | null>(null);
@@ -180,7 +180,7 @@ const DirectReadTab: React.FC<DirectReadTabProps> = ({
       const promises = sentences.map(async (s, i) => {
         const tokens = tokenize(s.sentence_en);
         if (tokens.length === 0) return { i, analysis: { chunking: [], main_sv: [], grammar_tags: [] } as DirectReadSentence };
-        const analysis = await generateDirectReadAnalysis(apiKey, tokens, 'gemini-2.0-flash', s.sentence_en, s.sentence_kr);
+        const analysis = await generateDirectReadAnalysis(apiKey, tokens, geminiModel, s.sentence_en, s.sentence_kr);
         return { i, analysis };
       });
       const results = await Promise.all(promises);
@@ -195,7 +195,7 @@ const DirectReadTab: React.FC<DirectReadTabProps> = ({
     } finally {
       setIsGenerating(false);
     }
-  }, [sentences, apiKey, setSentenceAnalyses]);
+  }, [sentences, apiKey, geminiModel, setSentenceAnalyses]);
 
   const handlePreview = useCallback(() => {
     const hasAny = sentenceAnalyses.some(Boolean);
@@ -370,6 +370,21 @@ const DirectReadTab: React.FC<DirectReadTabProps> = ({
         <span style={{ color: '#6B7280', fontSize: '14px' }}>
           문장 {sentences.length}개 | 직독직해 생성됨 {countGenerated}개
         </span>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: '#374151' }}>
+          모델
+          <select
+            value={geminiModel}
+            onChange={(e) => setGeminiModel(e.target.value)}
+            disabled={isGenerating}
+            style={{ padding: '6px 10px', borderRadius: '8px', border: '1px solid #E5E7EB', fontSize: '13px', minWidth: '160px' }}
+          >
+            {GEMINI_MODELS.map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           type="button"
           onClick={() => void handleGenerateAll()}
@@ -446,7 +461,7 @@ const DirectReadTab: React.FC<DirectReadTabProps> = ({
       </div>
 
       <p style={{ color: '#6B7280', fontSize: '13px', marginBottom: '16px' }}>
-        「직독직해 생성」을 누르면 Gemini가 문장별로 직독직해·문장 성분(S/V/O/C)·문법 태그를 생성합니다. Settings에서 API Key를 설정한 뒤 사용하세요. 종합본에서 「분석본에 직독직해 포함」을 선택하면 이 직독직해가 분석본에 들어갑니다.
+        「직독직해 생성」을 누르면 Gemini가 문장별로 직독직해·문장 성분(S/V/O/C)·문법 태그를 생성합니다. 기본 모델은 WordBook과 동일한 gemini-2.5-flash입니다. Settings에서 API Key를 설정한 뒤 사용하세요. 종합본에서 「분석본에 직독직해 포함」을 선택하면 이 직독직해가 분석본에 들어갑니다.
       </p>
 
       {sentences.length === 0 ? (

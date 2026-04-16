@@ -1,6 +1,6 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
-import type { Word, Sentence, DirectReadSentence } from '../../types/words';
 import { getSettings } from '../../lib/store';
+import type { Word, Sentence, DirectReadSentence } from '../../types/words';
 import { generateSpeechAudio } from '../../lib/wordsGemini';
 
 interface VideoTabProps {

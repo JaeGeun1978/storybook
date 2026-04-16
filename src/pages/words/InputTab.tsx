@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { getSettings } from '../../lib/store';
 import type { Word, Sentence } from '../../types/words';
 import {
   splitAndTranslate,
@@ -7,7 +8,6 @@ import {
   GEMINI_MODELS,
 } from '../../lib/wordsGemini';
 import type { ManualWordInput } from '../../lib/wordsGemini';
-import { getSettings } from '../../lib/store';
 
 interface InputSet {
   id: number;
@@ -646,7 +646,7 @@ const InputTab: React.FC<InputTabProps> = ({
                   rows={6}
                   style={{
                     width: '100%', padding: '10px', borderRadius: '8px', border: '1px solid #E5E7EB',
-                    fontSize: '14px', lineHeight: '1.7', resize: 'vertical', fontFamily: "'Noto Sans KR', sans-serif", color: '#1F2937', backgroundColor: 'white',
+                    fontSize: '14px', lineHeight: '1.7', resize: 'vertical', fontFamily: "'Noto Sans KR', sans-serif",
                   }}
                 />
                 <div style={{ marginTop: '8px', display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1044,7 +1044,7 @@ const labelStyle: React.CSSProperties = {
 };
 const inputStyle: React.CSSProperties = {
   width: '100%', padding: '9px 13px', borderRadius: '8px', border: '1px solid #D1D5DB',
-  fontSize: '15px', fontFamily: "'Noto Sans KR', sans-serif", color: '#1F2937', backgroundColor: 'white',
+  fontSize: '15px', fontFamily: "'Noto Sans KR', sans-serif",
 };
 const btnStyle: React.CSSProperties = {
   padding: '11px 22px', borderRadius: '8px', border: 'none', color: 'white',
